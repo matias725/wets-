@@ -416,13 +416,13 @@ export function searchAll(query) {
 }
 
 // ---------------------------------------------------------- alertas y rankings
-const isPreventiveLine = (l) => l.prev ?? PREVENTIVE_CODES.test(l.code)
+export const isPreventiveLine = (l) => l.prev ?? PREVENTIVE_CODES.test(l.code)
 const inRange = (d, from, to) => Boolean(d) && (!from || d >= from) && (!to || d <= to)
 const ACCIDENT_TYPES = new Set(['DYP', 'Compañía de seguros'])
 // OT de preparación / equipamiento para un cliente o faena (grúas, kits mineros,
 // unidad nueva). Es inversión, no falla: no cuenta para sugerir la venta.
 const PREPARATION_RE = /\b(PREPARACI[OÓ]N|EQUIPAMIENTO|HABILITACI[OÓ]N|IMPLEMENTACI[OÓ]N|ALISTAMIENTO)\b/i
-const isPreparation = (o) => o.interventionType === 'Equipamiento unidades nuevas' || PREPARATION_RE.test(o.reason)
+export const isPreparation = (o) => o.interventionType === 'Equipamiento unidades nuevas' || PREPARATION_RE.test(o.reason)
 
 /** OT abiertas con N días o más, con su responsable (el registrado o el sugerido de la sucursal). */
 export function getStalledOrders(branchId = ALL_BRANCHES, minDays = 15) {

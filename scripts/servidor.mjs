@@ -14,6 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
 import { convertSapFile } from '../src/lib/sapImport.js'
+import { createIaHandler } from './ia.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DIST = path.join(ROOT, 'dist')
@@ -172,7 +173,9 @@ function send(req, res, file, cache) {
   fs.createReadStream(file).pipe(res)
 }
 
-const server = http.createServer((req, res) => {
+const handleIa = createIaHandler({ root: ROOT, dataDir: DATA, log })
+
+const server = http.createServer(async (req, res) => {
   let pathname
   try {
     pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname)
@@ -180,6 +183,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(400).end()
     return
   }
+  if (await handleIa(req, res, pathname)) return
   if (pathname.startsWith('/data/')) {
     const name = pathname.slice(6)
     const file = path.join(DATA, name)

@@ -31,3 +31,6 @@ public/data/
 
 # Imágenes con derechos de terceros (p. ej. foto de Toyota del ingreso): solo en este equipo
 public/local/
+
+# Clave de Anthropic del Analista IA: solo en este equipo
+.clave-ia.json
