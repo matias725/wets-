@@ -2,6 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { DataUpdateBanner } from './DataUpdateBanner'
 
 export function Layout() {
   const location = useLocation()
@@ -10,6 +11,7 @@ export function Layout() {
       <Sidebar />
       <main className="min-w-0 flex-1 px-4 pb-10 sm:px-6 lg:px-8">
         <Header />
+        <DataUpdateBanner />
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}

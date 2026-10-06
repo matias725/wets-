@@ -93,7 +93,14 @@ Foto de inicio: Unsplash (licencia libre).
 
 ## Cargar la flota real desde SAP
 
-**Desde la página (recomendado):** Flota → **Cargar Excel del SAP** → elegir el Excel completo
+**Automático con la carpeta SAP (recomendado):** el acceso **West IA** del escritorio abre la web
+(http://localhost:4310) y deja funcionando en segundo plano `scripts/servidor.mjs`, que también se inicia
+solo al encender el computador. Al pegar el Excel del SAP en **EscritorioSAP**, lo procesa en segundos
+y la web abierta muestra "Llegaron datos nuevos del SAP" → **Actualizar ahora**.
+Registro: `public/data/vigilante.log`. La web solo es accesible desde este computador.
+Si se cambia el código, hay que volver a ejecutar `npm run build`.
+
+**Desde la página:** Flota → **Cargar Excel del SAP** → elegir el Excel completo
 (hoja de OT + maestro de vehículos). Se procesa en el mismo navegador en pocos segundos,
 queda guardado ahí (IndexedDB) y la página se actualiza. El archivo no se envía a ningún servidor.
 Para quitarlo: botón **Quitar datos cargados** en Flota.
