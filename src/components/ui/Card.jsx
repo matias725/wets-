@@ -18,8 +18,9 @@ export function Card({ className, children, delay = 0, as = 'section', ...props 
 
 export function CardHeader({ title, subtitle, action, icon: Icon, className }) {
   return (
-    <div className={cx('flex items-start justify-between gap-3 px-5 pt-5 pb-3', className)}>
-      <div className="flex min-w-0 items-start gap-3">
+    // En pantallas angostas la acción baja a su propia línea (no aprieta el texto).
+    <div className={cx('flex flex-wrap items-start justify-between gap-3 px-5 pt-5 pb-3', className)}>
+      <div className="flex min-w-0 flex-[1_1_16rem] items-start gap-3">
         {Icon && (
           <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand-text">
             <Icon size={16} strokeWidth={2} />

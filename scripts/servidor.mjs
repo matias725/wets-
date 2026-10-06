@@ -12,6 +12,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import zlib from 'node:zlib'
 import { convertSapFile } from '../src/lib/sapImport.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -142,11 +143,31 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.glb': 'model/gltf-binary',
   '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
 }
 const DATA_FILES = new Set(['west-real.json', 'estado.json'])
 
-function send(res, file, cache) {
-  const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream'
+// Texto comprimido (gzip): los datos del SAP pasan de ~9 MB a ~1 MB, clave en el celular.
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.webmanifest', '.txt'])
+const gzCache = new Map()
+function gzipped(file) {
+  const st = fs.statSync(file)
+  const hit = gzCache.get(file)
+  if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return hit.buf
+  const buf = zlib.gzipSync(fs.readFileSync(file), { level: 6 })
+  gzCache.set(file, { mtime: st.mtimeMs, size: st.size, buf })
+  return buf
+}
+
+function send(req, res, file, cache) {
+  const ext = path.extname(file).toLowerCase()
+  const type = MIME[ext] || 'application/octet-stream'
+  if (COMPRESSIBLE.has(ext) && /gzip/.test(req.headers['accept-encoding'] || '')) {
+    const buf = gzipped(file)
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache, 'Content-Encoding': 'gzip', 'Content-Length': buf.length, Vary: 'Accept-Encoding' })
+    res.end(buf)
+    return
+  }
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache })
   fs.createReadStream(file).pipe(res)
 }
@@ -162,16 +183,16 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith('/data/')) {
     const name = pathname.slice(6)
     const file = path.join(DATA, name)
-    if (DATA_FILES.has(name) && fs.existsSync(file)) return send(res, file, 'no-cache')
+    if (DATA_FILES.has(name) && fs.existsSync(file)) return send(req, res, file, 'no-cache')
     res.writeHead(404).end()
     return
   }
   const file = path.normalize(path.join(DIST, pathname))
   if (file.startsWith(DIST) && fs.existsSync(file) && fs.statSync(file).isFile()) {
-    return send(res, file, pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache')
+    return send(req, res, file, pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache')
   }
   // aplicación de una sola página: cualquier otra ruta abre index.html
-  send(res, path.join(DIST, 'index.html'), 'no-cache')
+  send(req, res, path.join(DIST, 'index.html'), 'no-cache')
 })
 
 if (!fs.existsSync(path.join(DIST, 'index.html'))) {

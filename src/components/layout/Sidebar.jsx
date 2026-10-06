@@ -130,7 +130,7 @@ export function Sidebar() {
           <>
             <motion.div className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-sm lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileNavOpen(false)} />
             <motion.aside
-              className="glass-strong fixed inset-y-0 left-0 z-50 flex w-72 flex-col p-3 lg:hidden"
+              className="glass-strong fixed inset-y-0 left-0 z-50 flex w-72 flex-col p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}

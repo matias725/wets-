@@ -30,7 +30,7 @@ export function Segmented({ value, onChange, options }) {
             role="tab"
             aria-selected={active}
             onClick={() => onChange(o.value)}
-            className={cx('relative inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors', active ? 'text-brand-ink' : 'text-muted hover:text-fg')}
+            className={cx('relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium whitespace-nowrap transition-colors', active ? 'text-brand-ink' : 'text-muted hover:text-fg')}
           >
             {active && <motion.span layoutId={`seg-${options.map((x) => x.value).join('')}`} className="absolute inset-0 rounded-lg bg-brand" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
             <span className="relative inline-flex items-center gap-1.5">
