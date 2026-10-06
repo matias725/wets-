@@ -278,7 +278,8 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
         mileage: km,
         nextMaintenanceKm: nextKm,
         clientId: null,
-        clientName: text(mc(r, 'nombre sn')) || text(mc(r, 'alias cc/cliente')),
+        // si el maestro no trae cliente, se usa el de su última OT
+        clientName: text(mc(r, 'nombre sn')) || text(mc(r, 'alias cc/cliente')) || last?.clientName || '',
         area: area === 'LOP' ? 'LOP' : area === 'RAC' ? 'RAC' : titleCase(area) || 'RAC',
         areaRaw: area,
         owner: text(mc(r, 'propiedad')),
