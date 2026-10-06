@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Save } from 'lucide-react'
 import { BLOCKERS, INTERVENTION_COLOR, PRIORITIES, REAL_STATUS } from '@/data/catalog'
-import { responsiblesFor, saveManagement } from '@/data/api'
+import { META, responsiblesFor, saveManagement } from '@/data/api'
 import { Drawer } from '@/components/ui/Overlay'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { Stat } from '@/components/ui/misc'
+import { ShareImageButtons } from '@/components/ui/ShareImageButtons'
 import { clp, date, km } from '@/lib/format'
 import { toast } from 'sonner'
 
@@ -49,6 +50,15 @@ export function ManagementDrawer({ ot: incoming, onClose, onSaved }) {
         </>
       }
     >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2">
+        <span className="text-xs text-muted">Estado de la OT como imagen, para el cliente o el taller externo (sin montos)</span>
+        <ShareImageButtons
+          filename={`OT ${ot.workOrder} ${ot.plate}.png`}
+          make={async () =>
+            (await import('@/lib/vehicleImage')).renderOrderCard({ ...ot, management: form }, { source: META.source === 'sap' ? `datos SAP al ${date(META.to)}` : '' })
+          }
+        />
+      </div>
       {ot.photos?.length > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Fotos ({ot.photos.length})</div>

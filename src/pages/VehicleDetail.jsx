@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, CarFront, ChevronDown, Copy, FileText, Gauge, Hammer, History, ImageDown, Loader2, Receipt, ShieldAlert, Wrench } from 'lucide-react'
-import { toast } from 'sonner'
+import { ArrowLeft, CarFront, ChevronDown, FileText, Gauge, Hammer, History, Receipt, ShieldAlert, Wrench } from 'lucide-react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useData } from '@/hooks/useData'
 import { getOpenWorkOrders, getVehicle, ALL_BRANCHES, META, isRealData } from '@/data/api'
@@ -15,58 +14,11 @@ import { Segmented, Stat } from '@/components/ui/misc'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { axisProps } from '@/lib/chart'
 import { ManagementDrawer } from '@/components/ot/ManagementDrawer'
+import { ShareImageButtons } from '@/components/ui/ShareImageButtons'
 import { clp, clpShort, cx, date, km, num } from '@/lib/format'
 import pickupPhoto from '@/assets/img/camioneta-4x4.jpg'
 
-// Ficha como imagen: descargar el PNG o copiarlo para pegarlo en WhatsApp / correo.
-function ShareImage({ v, openOT }) {
-  const [busy, setBusy] = useState('')
-  const make = async () => {
-    const { renderVehicleCard } = await import('@/lib/vehicleImage')
-    return renderVehicleCard(v, openOT, { source: META.source === 'sap' ? `datos SAP al ${date(META.to)}` : 'datos de demostración' })
-  }
-  const download = async () => {
-    setBusy('download')
-    try {
-      const blob = await make()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Ficha ${v.plate}.png`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 2000)
-      toast.success(`Imagen de ${v.plate} descargada`)
-    } catch (e) {
-      toast.error('No se pudo crear la imagen', { description: e?.message })
-    } finally {
-      setBusy('')
-    }
-  }
-  const copy = async () => {
-    setBusy('copy')
-    try {
-      // el portapapeles recibe la promesa: así el navegador no pierde el permiso mientras se dibuja
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': make() })])
-      toast.success('Imagen copiada', { description: 'Péguela con Ctrl+V en WhatsApp Web o en un correo' })
-    } catch {
-      toast.error('El navegador no permitió copiar la imagen', { description: 'Use "Descargar imagen"' })
-    } finally {
-      setBusy('')
-    }
-  }
-  return (
-    <div className="flex gap-2">
-      <Button size="sm" onClick={copy} disabled={Boolean(busy)} title="Copiar la ficha como imagen">
-        {busy === 'copy' ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />} Copiar imagen
-      </Button>
-      <Button size="sm" onClick={download} disabled={Boolean(busy)} title="Descargar la ficha como imagen PNG">
-        {busy === 'download' ? <Loader2 size={14} className="animate-spin" /> : <ImageDown size={14} />} Descargar imagen
-      </Button>
-    </div>
-  )
-}
+const dataSource = () => (META.source === 'sap' ? `datos SAP al ${date(META.to)}` : 'datos de demostración')
 
 function OTRow({ o }) {
   const [open, setOpen] = useState(false)
@@ -156,7 +108,10 @@ export default function VehicleDetail() {
         <Link to="/flota" className="inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-fg">
           <ArrowLeft size={16} /> Flota
         </Link>
-        <ShareImage v={v} openOT={openOT} />
+        <ShareImageButtons
+          filename={`Ficha ${v.plate}.png`}
+          make={async () => (await import('@/lib/vehicleImage')).renderVehicleCard(v, openOT, { source: dataSource() })}
+        />
       </div>
 
       <Card className="overflow-hidden">

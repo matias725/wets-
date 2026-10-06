@@ -256,12 +256,24 @@ function send(req, res, file, cache) {
     return
   }
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache })
-  fs.createReadStream(file).pipe(res)
+  // si el navegador corta la descarga o el archivo falla, solo se cierra esa respuesta
+  const stream = fs.createReadStream(file)
+  stream.on('error', () => res.destroy())
+  res.on('close', () => stream.destroy())
+  stream.pipe(res)
 }
 
 const handleIa = createIaHandler({ root: ROOT, dataDir: DATA, log })
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    log(`Error atendiendo ${req.url}: ${e?.message || e}`)
+    if (!res.headersSent) res.writeHead(500).end()
+    else res.destroy()
+  })
+})
+
+async function handleRequest(req, res) {
   let pathname
   try {
     pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname)
@@ -284,7 +296,11 @@ const server = http.createServer(async (req, res) => {
   }
   // aplicación de una sola página: cualquier otra ruta abre index.html
   send(req, res, path.join(DIST, 'index.html'), 'no-cache')
-})
+}
+
+// Un error inesperado no debe botar el programa: se registra y sigue funcionando.
+process.on('uncaughtException', (e) => log(`Error inesperado: ${e?.stack || e}`))
+process.on('unhandledRejection', (e) => log(`Error inesperado (promesa): ${e?.stack || e}`))
 
 if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   log('Falta compilar la web: ejecute "npm run build" en la carpeta del proyecto.')
