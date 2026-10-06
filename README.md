@@ -90,3 +90,16 @@ React 19 · Vite · Tailwind CSS v4 · three.js · React Router · TanStack Tabl
 
 Mapas: Esri World Gray Canvas (oscuro y claro). CARTO Dark Matter, sugerido originalmente, hoy exige una clave de acceso; si se obtiene, se cambia en `src/components/charts/BranchMap.jsx`.
 Foto de inicio: Unsplash (licencia libre).
+
+## Cargar la flota real desde SAP
+
+1. Exportar el Excel completo del SAP (hojas de OT y maestro de vehículos).
+2. Ejecutar:
+   ```
+   python scripts/convertir_sap.py "C:\ruta\SAP COMPLETO.xlsx"
+   ```
+   Esto genera `public/data/west-real.json`. La web lo carga sola al abrir; si no existe, se muestra la versión de demostración.
+3. Para actualizar los datos, se vuelve a ejecutar el mismo comando con el Excel nuevo.
+
+> Los datos reales **no se suben a GitHub** (`public/data/` está en `.gitignore`).
+> Los vehículos usados o en venta aparecen en Flota, pero no cuentan en los indicadores.

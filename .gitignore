@@ -25,3 +25,6 @@ dist-ssr
 
 # Herramientas de prueba
 .playwright-mcp
+
+# Datos reales de la empresa (generados con scripts/convertir_sap.py): NO subir
+public/data/

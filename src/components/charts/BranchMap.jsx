@@ -39,7 +39,7 @@ export function BranchMap({ rows, onSelect }) {
     >
       <TileLayer key={theme} url={TILES[theme === 'dark' ? 'dark' : 'light']} attribution={ATTRIBUTION} maxZoom={16} />
       <FlyToBranch branch={branchId === ALL_BRANCHES ? null : selected} />
-      {rows.map((r) => {
+      {rows.filter((r) => r.branch.lat != null).map((r) => {
         const share = r.total ? r.workshop / r.total : 0
         const color = r.total === 0 ? '#64748b' : share >= 0.34 ? '#ef4444' : share > 0 ? '#f59e0b' : '#22c55e'
         const isSelected = r.branch.id === branchId

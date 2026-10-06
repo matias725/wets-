@@ -197,6 +197,7 @@ export default function VehicleDetail() {
           <Card delay={0.14}>
             <CardHeader title="Documentos" subtitle="Vencimientos del vehículo" icon={FileText} />
             <ul className="space-y-2 px-5 pb-5">
+              {v.documents.length === 0 && <li className="rounded-xl bg-[var(--line)] px-3 py-2.5 text-sm text-muted">Sin documentos registrados en el SAP</li>}
               {v.documents.map((d) => (
                 <li key={d.name} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--line)] px-3 py-2.5">
                   <div>

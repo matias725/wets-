@@ -5,13 +5,15 @@ import { BRANCHES, BRANCH_BY_ID, ALL_BRANCHES } from './branches'
 import { ACTIVE_SAP_STATUS, CATEGORY_BY_ID, KANBAN_COLUMNS, VEHICLE_STATUS } from './catalog'
 import { COMPANIES, PERSONS, RESPONSIBLES, FALLBACK_RESPONSIBLE } from './people'
 import {
-  MANAGEMENT, STALLED_WITHOUT_OT, TODAY, VEHICLES as DEMO_VEHICLES, VISITS, WORK_ORDERS, addDays, iso,
-} from './generate'
+  META, MANAGEMENT, RESPONSIBLES_BY_BRANCH, STALLED_WITHOUT_OT, TODAY, VEHICLES as BASE_VEHICLES, VISITS, WORK_ORDERS, addDays, iso,
+} from './dataset'
 
-export { TODAY, iso, addDays }
+export { TODAY, iso, addDays, META }
+export const isRealData = META.source === 'sap'
 
 // ------------------------------------------------------------ estado + persistencia
-const STORAGE_KEY = 'westia.demo.v2'
+// Claves separadas para datos reales y demostración: la gestión de uno no se mezcla con el otro.
+const STORAGE_KEY = isRealData ? 'westia.sap.v1' : 'westia.demo.v2'
 const state = {
   management: { ...MANAGEMENT },
   recovery: {},
@@ -34,9 +36,12 @@ try {
 // La flota parte con los datos de demostración y puede reemplazarse por una
 // importada desde Excel (ver lib/fleetExcel.js). Se guarda aparte porque puede
 // ser grande y porque representa datos reales, no gestión de la demo.
-const FLEET_KEY = 'westia.fleet.v1'
-let fleet = DEMO_VEHICLES
-let fleetMeta = { source: 'demo', count: DEMO_VEHICLES.length }
+const FLEET_KEY = isRealData ? 'westia.fleet.sap.v1' : 'westia.fleet.v1'
+const baseMeta = isRealData
+  ? { source: 'sap', count: BASE_VEHICLES.length, fileName: META.fileName, importedAt: META.generatedAt, from: META.from, to: META.to }
+  : { source: 'demo', count: BASE_VEHICLES.length }
+let fleet = BASE_VEHICLES
+let fleetMeta = baseMeta
 try {
   const saved = JSON.parse(localStorage.getItem(FLEET_KEY) || 'null')
   if (Array.isArray(saved?.vehicles) && saved.vehicles.length) {
@@ -86,13 +91,26 @@ export const branchName = (id) => BRANCH_BY_ID[id]?.name ?? 'Sin sucursal'
 export const clientName = (id) => clientById[id]?.name ?? 'Sin cliente'
 
 export function responsiblesFor(branchId) {
+  // Con datos SAP: quienes generan OT en esa sucursal.
+  if (RESPONSIBLES_BY_BRANCH) return [...(RESPONSIBLES_BY_BRANCH[branchId] ?? []), FALLBACK_RESPONSIBLE]
   const zone = BRANCH_BY_ID[branchId]?.zone ?? 'centro'
   return [...RESPONSIBLES[zone], FALLBACK_RESPONSIBLE]
 }
 
+// Índice de OT por patente: evita recorrer miles de OT por cada vehículo.
+const ordersByPlate = new Map()
+WORK_ORDERS.forEach((o) => {
+  if (!ordersByPlate.has(o.plate)) ordersByPlate.set(o.plate, [])
+  ordersByPlate.get(o.plate).push(o)
+})
+
 // ---------------------------------------------------------------------- flota
-export function getVehicles(branchId = ALL_BRANCHES) {
-  return fleet.filter(inBranch(branchId)).map(enrichVehicle)
+/**
+ * Vehículos de la flota. Por defecto excluye los usados / en venta, que no
+ * forman parte de la flota operativa (sí se ven en Flota con includeSold).
+ */
+export function getVehicles(branchId = ALL_BRANCHES, { includeSold = false } = {}) {
+  return fleet.filter(inBranch(branchId)).filter((v) => includeSold || v.status !== 'sold').map(enrichVehicle)
 }
 
 export const getFleetMeta = () => fleetMeta
@@ -127,9 +145,9 @@ export function importFleet(vehicles, mode, meta) {
 }
 
 export function resetFleet() {
-  fleet = DEMO_VEHICLES
+  fleet = BASE_VEHICLES
   fleetIndex = new Map(fleet.map((v) => [v.plate, v]))
-  fleetMeta = { source: 'demo', count: fleet.length }
+  fleetMeta = baseMeta
   try {
     localStorage.removeItem(FLEET_KEY)
   } catch {
@@ -153,7 +171,7 @@ function enrichVehicle(v) {
 export function getVehicle(plate) {
   const v = vehicleByPlate(plate)
   if (!v) return null
-  const history = WORK_ORDERS.filter((o) => o.plate === plate)
+  const history = (ordersByPlate.get(plate) ?? [])
     .map(enrichWorkOrder)
     .sort((a, b) => b.receivedDate.localeCompare(a.receivedDate))
   const totalCost = history.reduce((s, o) => s + o.totalCost, 0)
@@ -174,8 +192,8 @@ function enrichWorkOrder(o) {
   return {
     ...o,
     active,
-    branch: branchName(o.branchId),
-    client: clientName(o.clientId),
+    branch: o.branchId ? branchName(o.branchId) : o.branchRaw || 'Sin sucursal',
+    client: o.clientId ? clientName(o.clientId) : o.clientName || 'Sin cliente',
     daysOpen: active ? daysBetween(o.receivedDate) : null,
   }
 }
@@ -245,7 +263,8 @@ export function getExpenseRows(branchId = ALL_BRANCHES) {
       const recovery = state.recovery[o.workOrder] ?? o.recovery
       let preventive = 0
       let corrective = 0
-      o.lines.forEach((l) => (PREVENTIVE_CODES.test(l.code) ? (preventive += l.total) : (corrective += l.total)))
+      // SAP: cada línea trae si es preventiva (catálogo West); demo: por código.
+      o.lines.forEach((l) => ((l.prev ?? PREVENTIVE_CODES.test(l.code)) ? (preventive += l.total) : (corrective += l.total)))
       const charge = recovery === 'A cobro' ? o.totalCost : 0
       if (charge) {
         preventive = 0
@@ -258,8 +277,8 @@ export function getExpenseRows(branchId = ALL_BRANCHES) {
         date: o.closedDate || o.receivedDate,
         month: (o.closedDate || o.receivedDate).slice(0, 7),
         branchId: o.branchId,
-        branch: branchName(o.branchId),
-        client: clientName(o.clientId),
+        branch: o.branchId ? branchName(o.branchId) : o.branchRaw || 'Sin sucursal',
+        client: o.clientId ? clientName(o.clientId) : o.clientName || 'Sin cliente',
         area: o.area,
         interventionType: o.interventionType,
         reason: o.reason,
@@ -379,7 +398,7 @@ export function getNotifications(branchId = ALL_BRANCHES) {
   if (long.length) list.push({ id: 'long', tone: 'danger', title: `${long.length} unidades con más de 20 días`, detail: 'Revisar causa de permanencia en taller', to: '/ot?filtro=gt20' })
   const noMg = open.filter((o) => o.flags.noManagement)
   if (noMg.length) list.push({ id: 'nomg', tone: 'warning', title: `${noMg.length} OT sin gestión`, detail: 'Sin responsable, prioridad ni estado real', to: '/ot?filtro=noManagement' })
-  const maint = fleet.filter(inBranch(branchId)).filter((v) => v.nextMaintenanceKm - v.mileage < 0)
+  const maint = fleet.filter(inBranch(branchId)).filter((v) => v.status !== 'sold' && v.mileage > 0 && v.nextMaintenanceKm - v.mileage < 0)
   if (maint.length) list.push({ id: 'maint', tone: 'warning', title: `${maint.length} mantenciones vencidas por kilometraje`, detail: 'Programar ingreso preventivo', to: '/flota?mantencion=vencida' })
   const docs = fleet.filter(inBranch(branchId)).flatMap((v) => (v.documents ?? []).filter((d) => d.expiresAt < iso(TODAY)))
   if (docs.length) list.push({ id: 'docs', tone: 'danger', title: `${docs.length} documentos vencidos`, detail: 'Revisión técnica, permiso, SOAP o seguro', to: '/flota?documentos=vencidos' })

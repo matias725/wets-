@@ -9,6 +9,8 @@ export const CATEGORIES = [
   { id: 'pickup-4x2', label: 'Camioneta 4x2', color: '#fbbf24' },
   { id: 'pickup-4x4', label: 'Camioneta 4x4', color: '#f59e0b' },
   { id: 'pickup-mining', label: 'Camioneta equipamiento minero', color: '#fb923c' },
+  { id: 'bus', label: 'Bus / minibús / furgón', color: '#2dd4bf' },
+  { id: 'truck', label: 'Camión', color: '#f472b6' },
   { id: 'other', label: 'Otra', color: '#94a3b8' },
 ]
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]))
@@ -37,6 +39,7 @@ export const VEHICLE_STATUS = {
   cleaning: { label: 'En limpieza', color: '#06b6d4' },
   workshop: { label: 'En taller', color: '#f59e0b' },
   out: { label: 'Fuera de servicio', color: '#ef4444' },
+  sold: { label: 'Usado / venta', color: '#71717a' },
 }
 
 // Estados SAP de una OT. Activa = No iniciada o Proceso (regla WEST IA).
@@ -92,6 +95,8 @@ export const INTERVENTION_TYPES = [
   { id: 'Compañía de seguros', color: '#ec4899' },
   { id: 'Lavado', color: '#94a3b8' },
   { id: 'Equipamiento unidades nuevas', color: '#eab308' },
+  { id: 'Revisión técnica', color: '#14b8a6' },
+  { id: 'Otros', color: '#64748b' },
 ]
 export const INTERVENTION_COLOR = Object.fromEntries(INTERVENTION_TYPES.map((t) => [t.id, t.color]))
 

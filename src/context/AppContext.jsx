@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { ALL_BRANCHES } from '@/data/branches'
+import { ALL_BRANCHES, BRANCH_BY_ID } from '@/data/branches'
 import { CURRENT_USER } from '@/data/people'
 
 const AppContext = createContext(null)
@@ -24,7 +24,10 @@ export function AppProvider({ children }) {
   const [theme, setTheme] = useState(() => readStorage('westia.theme', 'dark'))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStorage('westia.sidebar', '0') === '1')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [branchId, setBranchId] = useState(() => readStorage('westia.branch', ALL_BRANCHES))
+  const [branchId, setBranchId] = useState(() => {
+    const saved = readStorage('westia.branch', ALL_BRANCHES)
+    return saved === ALL_BRANCHES || BRANCH_BY_ID[saved] ? saved : ALL_BRANCHES
+  })
   const [user, setUser] = useState(() => (readStorage('westia.session', '') ? CURRENT_USER : null))
 
   useEffect(() => {

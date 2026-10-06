@@ -9,6 +9,7 @@ import '@fontsource/big-shoulders-display/900'
 import { ArrowRight, ChevronsDown, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { buildHilux, HEART, RADIUS } from './hilux'
 import { startSketchfab } from './sketchfab'
+import { isRealData } from '@/data/api'
 import logoYellow from '@/assets/img/west_logo_yellow.png'
 import fallbackPhoto from '@/assets/img/login-desierto.jpg'
 
@@ -215,7 +216,7 @@ function LoginForm({ onLogin, emailRef }) {
           {loading ? 'Encendiendo motores…' : (<>Ingresar <ArrowRight size={17} /></>)}
         </button>
       </div>
-      <p style={{ fontSize: 11, opacity: 0.4, textAlign: 'center', margin: '16px 0 0' }}>Versión de demostración con datos ficticios</p>
+      <p style={{ fontSize: 11, opacity: 0.4, textAlign: 'center', margin: '16px 0 0' }}>{isRealData ? 'Datos reales de flota (SAP)' : 'Versión de demostración con datos ficticios'}</p>
     </form>
   )
 }

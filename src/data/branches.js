@@ -1,6 +1,8 @@
 // Sucursales con coordenadas reales (aeropuertos: terminal de pasajeros).
 // zone se usa para ponderar la flota: el norte concentra camionetas (zona minera).
-export const BRANCHES = [
+import { REAL } from './realData'
+
+const DEMO_BRANCHES = [
   { id: 'apt-arica', name: 'APT Arica', city: 'Arica', lat: -18.3485, lng: -70.3387, zone: 'norte' },
   { id: 'apt-iquique', name: 'APT Iquique', city: 'Iquique', lat: -20.5352, lng: -70.1813, zone: 'norte' },
   { id: 'iquique', name: 'Iquique', city: 'Iquique', lat: -20.2141, lng: -70.1524, zone: 'norte' },
@@ -26,5 +28,7 @@ export const BRANCHES = [
   { id: 'puerto-montt', name: 'Puerto Montt', city: 'Puerto Montt', lat: -41.4693, lng: -72.9424, zone: 'sur' },
 ]
 
+// Con datos SAP se usan las sucursales reales (las sin coordenadas no van al mapa).
+export const BRANCHES = REAL ? REAL.branches : DEMO_BRANCHES
 export const BRANCH_BY_ID = Object.fromEntries(BRANCHES.map((b) => [b.id, b]))
 export const ALL_BRANCHES = 'all'

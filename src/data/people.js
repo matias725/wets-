@@ -1,6 +1,8 @@
-// Personas y empresas FICTICIAS para la demostración.
+// Personas y empresas FICTICIAS para la demostración. Con datos SAP, los
+// clientes son los reales (nombre SN / alias cliente).
+import { REAL } from './realData'
 
-export const COMPANIES = [
+const DEMO_COMPANIES = [
   { id: 'emp-1', name: 'Minera Altos del Loa', rut: '76.412.880-3', kind: 'Minera', zone: 'norte', discount: 0.18, leasingUnits: 14 },
   { id: 'emp-2', name: 'Minera Pampa Norte', rut: '77.105.332-1', kind: 'Minera', zone: 'norte', discount: 0.15, leasingUnits: 9 },
   { id: 'emp-3', name: 'Constructora Cordillera', rut: '76.998.104-K', kind: 'Constructora', zone: 'centro', discount: 0.12, leasingUnits: 6 },
@@ -17,8 +19,10 @@ const LAST = [
   'Morales', 'Rodríguez', 'López', 'Fuentes', 'Hernández', 'Torres', 'Araya', 'Flores', 'Espinoza', 'Valenzuela',
 ]
 
+export const COMPANIES = REAL ? [] : DEMO_COMPANIES
+
 // 40 clientes particulares con nombres y RUT ficticios, deterministas.
-export const PERSONS = Array.from({ length: 40 }, (_, i) => {
+const DEMO_PERSONS = Array.from({ length: 40 }, (_, i) => {
   const first = FIRST[(i * 7) % FIRST.length]
   const last1 = LAST[(i * 3) % LAST.length]
   const last2 = LAST[(i * 11 + 5) % LAST.length]
@@ -30,6 +34,8 @@ export const PERSONS = Array.from({ length: 40 }, (_, i) => {
     kind: 'Particular',
   }
 })
+
+export const PERSONS = REAL ? REAL.clients.map((name, i) => ({ id: `cli-${i}`, name, rut: '', kind: 'Cliente' })) : DEMO_PERSONS
 
 // Responsables de taller por zona (ficticios).
 export const RESPONSIBLES = {

@@ -16,6 +16,7 @@ import { exportFleetExcel } from '@/lib/fleetExcel'
 import { ImportFleetModal } from '@/components/fleet/ImportFleetModal'
 
 function MaintenanceCell({ v }) {
+  if (!v.mileage) return <div className="text-right text-xs text-muted">Sin registro</div>
   const left = v.kmToMaintenance
   const color = left < 0 ? '#ef4444' : left < 1500 ? '#f59e0b' : '#22c55e'
   return (
@@ -31,7 +32,7 @@ function MaintenanceCell({ v }) {
 export default function Fleet() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const vehicles = useData((b) => getVehicles(b))
+  const vehicles = useData((b) => getVehicles(b, { includeSold: true }))
   const [query, setQuery] = useState(params.get('cliente') ?? '')
   const [category, setCategory] = useState('all')
   const [status, setStatus] = useState('all')
@@ -40,7 +41,7 @@ export default function Fleet() {
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const meta = useData(() => getFleetMeta())
-  const allVehicles = useData(() => getVehicles(ALL_BRANCHES))
+  const allVehicles = useData(() => getVehicles(ALL_BRANCHES, { includeSold: true }))
   const maintenanceDue = params.get('mantencion') === 'vencida'
   const docsDue = params.get('documentos') === 'vencidos'
 
@@ -113,7 +114,7 @@ export default function Fleet() {
         ),
       },
       { accessorKey: 'statusLabel', header: 'Estado', cell: ({ row: { original: v } }) => <Badge color={VEHICLE_STATUS[v.status].color}>{v.statusLabel}</Badge> },
-      { accessorKey: 'mileage', header: 'Kilometraje', cell: (c) => km(c.getValue()), meta: { align: 'right' } },
+      { accessorKey: 'mileage', header: 'Kilometraje', cell: (c) => (c.getValue() ? km(c.getValue()) : '—'), meta: { align: 'right' } },
       { accessorKey: 'kmToMaintenance', header: 'Mantención', cell: ({ row: { original: v } }) => <MaintenanceCell v={v} />, meta: { align: 'right' } },
     ],
     [],
@@ -184,6 +185,13 @@ export default function Fleet() {
           >
             <RotateCcw size={14} /> Volver a datos de demostración
           </Button>
+        </div>
+      ) : meta.source === 'sap' ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-brand/25 bg-brand/10 px-4 py-3 text-sm">
+          <FileSpreadsheet size={18} className="shrink-0 text-brand-text" />
+          <span>
+            Flota real cargada desde <b>{meta.fileName}</b> · {num(allVehicles.length)} vehículos · OT desde el {date(meta.from)} al {date(meta.to)}
+          </span>
         </div>
       ) : (
         <div className="mb-4 flex items-center gap-2 rounded-2xl bg-[var(--line)] px-4 py-3 text-xs text-muted">
