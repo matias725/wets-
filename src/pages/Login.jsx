@@ -1,14 +1,19 @@
-import { useMemo } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/context/AppContext'
 import { ALL_BRANCHES, BRANCHES, TODAY, addDays, getExpenseRows, getOpenWorkOrders, getVehicles, iso } from '@/data/api'
 import { clpShort } from '@/lib/format'
 import HiluxShowcase from '@/components/login/HiluxShowcase'
 
+const MobileLogin = lazy(() => import('@/components/login/MobileLogin'))
+// Celulares y tablets chicas: ingreso liviano (la presentación 3D es para computador).
+const MOBILE_QUERY = '(max-width: 820px), (pointer: coarse) and (max-width: 1024px)'
+
 export default function Login() {
   const { user, login } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
+  const [mobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
 
   // Datos reales de la flota para la portada y el cuadro de datos.
   const { stats, branchList } = useMemo(() => {
@@ -36,14 +41,16 @@ export default function Login() {
 
   if (user) return <Navigate to={location.state?.from || '/'} replace />
 
-  return (
-    <HiluxShowcase
-      stats={stats}
-      branchList={branchList}
-      onLogin={() => {
-        login()
-        navigate(location.state?.from || '/', { replace: true })
-      }}
-    />
-  )
+  const onLogin = () => {
+    login()
+    navigate(location.state?.from || '/', { replace: true })
+  }
+  if (mobile) {
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100svh', background: '#050505' }} />}>
+        <MobileLogin stats={stats} onLogin={onLogin} />
+      </Suspense>
+    )
+  }
+  return <HiluxShowcase stats={stats} branchList={branchList} onLogin={onLogin} />
 }

@@ -180,7 +180,7 @@ function Notifications() {
 export function Header() {
   const { theme, toggleTheme, setMobileNavOpen } = useApp()
   return (
-    <header className="sticky top-0 z-20 -mx-4 mb-6 px-4 pt-3 pb-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+    <header className="sticky top-0 z-20 -mx-4 mb-6 px-4 pt-3 pb-3 max-md:bg-[var(--bg)] md:backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
       <div className="flex items-center gap-2 sm:gap-3">
         <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Abrir menú" className="glass grid size-10 shrink-0 place-items-center rounded-xl text-muted lg:hidden">
           <Menu size={18} />

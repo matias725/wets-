@@ -22,17 +22,17 @@ import fallbackPhoto from '@/assets/img/login-desierto.jpg'
  * Inspirado en "Lycoris Specimen"; la flor se reemplaza por una Toyota Hilux 2024.
  */
 
-const INK = '#050505'
+export const INK = '#050505'
 // Modelo 3D real opcional: si existe, reemplaza a la camioneta modelada por código.
 const MODEL_URL = '/models/hilux.glb'
 const MODEL_CONFIG_URL = '/models/hilux.json' // { "rotateY": 180 } si el modelo mira hacia atrás
 // Modelo publicado en Sketchfab (se muestra con su visor oficial, sin descargarlo).
 // "Toyota Hilux BEV 2026" de ROH3D. Vacío ('') para no usarlo.
 const SKETCHFAB_UID = '7cfe837686a049819a38afb490b6d2af'
-const BONE = '#e9e3cf'
-const GOLD = '#ffc400'
-const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Impact, sans-serif'
-const SANS = '"Inter Variable", "Helvetica Neue", Arial, sans-serif'
+export const BONE = '#e9e3cf'
+export const GOLD = '#ffc400'
+export const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Impact, sans-serif'
+export const SANS = '"Inter Variable", "Helvetica Neue", Arial, sans-serif'
 
 // ------------------------------------------------------------------ tiempo
 const clamp01 = (x) => (x <= 0 ? 0 : x > 1 ? 1 : x)
@@ -94,7 +94,7 @@ const keyAt = (coord, tall) => {
 }
 
 // --------------------------------------------------------------------- CSS
-const CSS =
+export const CSS =
   '.wsx-stage{container-type:size;container-name:wsx}' +
   '.wsx-char{display:inline-block;animation:wsx-in 1.4s cubic-bezier(.2,.8,.2,1) both}' +
   '@keyframes wsx-in{from{opacity:0;transform:translateY(0.3em) skewY(6deg);filter:blur(12px)}to{opacity:1;transform:none;filter:blur(0)}}' +
@@ -171,7 +171,7 @@ function Stat({ value, label, align = 'left' }) {
   )
 }
 
-function LoginForm({ onLogin, emailRef }) {
+export function LoginForm({ onLogin, emailRef, compact = false }) {
   const [email, setEmail] = useState('mzepeda@west.cl')
   const [password, setPassword] = useState('demo1234')
   const [show, setShow] = useState(false)
@@ -186,13 +186,17 @@ function LoginForm({ onLogin, emailRef }) {
   }
   return (
     <form onSubmit={submit} noValidate style={{ ...sans, color: BONE }}>
-      <div style={{ ...sans, fontSize: 10, letterSpacing: '0.3em', opacity: 0.6, textTransform: 'uppercase' }}>
-        <span style={{ color: GOLD }}>06</span> — Ingreso
-      </div>
-      <h2 style={{ ...display, fontSize: 'clamp(40px, 4.6cqw, 64px)', lineHeight: 0.9, margin: '14px 0 6px', fontWeight: 900 }}>
-        Bienvenido
-      </h2>
-      <p style={{ fontSize: 14, opacity: 0.65, margin: '0 0 26px' }}>Ingrese con su cuenta corporativa West.</p>
+      {!compact && (
+        <>
+          <div style={{ ...sans, fontSize: 10, letterSpacing: '0.3em', opacity: 0.6, textTransform: 'uppercase' }}>
+            <span style={{ color: GOLD }}>06</span> — Ingreso
+          </div>
+          <h2 style={{ ...display, fontSize: 'clamp(40px, 4.6cqw, 64px)', lineHeight: 0.9, margin: '14px 0 6px', fontWeight: 900 }}>
+            Bienvenido
+          </h2>
+          <p style={{ fontSize: 14, opacity: 0.65, margin: '0 0 26px' }}>Ingrese con su cuenta corporativa West.</p>
+        </>
+      )}
       <label style={{ display: 'block', fontSize: 11, letterSpacing: '0.12em', opacity: 0.6, marginBottom: 8, textTransform: 'uppercase' }} htmlFor="wsx-email">
         Correo
       </label>
