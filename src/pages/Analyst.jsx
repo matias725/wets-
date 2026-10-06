@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bot, Check, KeyRound, Loader2, RotateCcw, Send, Settings, Sparkles, Square } from 'lucide-react'
+import { Bot, Check, Cloud, Cpu, Loader2, RotateCcw, Send, Settings, Sparkles, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { useApp } from '@/context/AppContext'
 import { isRealData } from '@/data/api'
-import { SUGGESTIONS, askAnalyst, getAiStatus, saveApiKey } from '@/lib/aiAgent'
+import { SUGGESTIONS, askAnalyst, getAiStatus, saveApiKey, setProvider } from '@/lib/aiAgent'
+import { cx } from '@/lib/format'
 import { AiChart } from '@/components/charts/AiChart'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -63,7 +64,7 @@ function Steps({ steps, live }) {
   )
 }
 
-function KeySetup({ configured, onSaved, onCancel }) {
+function KeySetup({ configured, onSaved }) {
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -73,9 +74,9 @@ function KeySetup({ configured, onSaved, onCancel }) {
     setError('')
     try {
       await saveApiKey(key)
-      toast.success('Clave guardada. El Analista ya está listo.')
+      toast.success('Clave guardada. Claude ya está listo.')
       setKey('')
-      onSaved()
+      await onSaved()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -83,12 +84,8 @@ function KeySetup({ configured, onSaved, onCancel }) {
     }
   }
   return (
-    <div className="mx-auto max-w-lg pt-8">
-      <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand/15 text-brand-text">
-        <KeyRound size={26} />
-      </span>
-      <h2 className="mt-4 text-center text-xl font-semibold">{configured ? 'Cambiar la clave de Anthropic' : 'Conectar el Analista con Claude'}</h2>
-      <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-sm text-muted">
+    <div>
+      <ol className="list-decimal space-y-1.5 pl-5 text-sm text-muted">
         <li>
           Entre a{' '}
           <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-brand-text hover:underline">
@@ -99,14 +96,14 @@ function KeySetup({ configured, onSaved, onCancel }) {
         <li>
           En <b>API Keys</b> cree una clave nueva y cópiela (empieza con <code>sk-ant-</code>).
         </li>
-        <li>Péguela aquí. Queda guardada solo en este computador.</li>
+        <li>Péguela aquí y presione Guardar. Queda guardada solo en este computador.</li>
       </ol>
-      <form onSubmit={save} className="mt-5 flex gap-2">
+      <form onSubmit={save} className="mt-4 flex gap-2">
         <input
           type="password"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder="sk-ant-…"
+          placeholder={configured ? 'Clave guardada · pegue otra para cambiarla' : 'sk-ant-…'}
           aria-label="Clave de API"
           autoComplete="off"
           className="h-11 flex-1 rounded-xl border border-[var(--glass-border)] bg-input px-4 text-sm outline-none placeholder:text-subtle focus:border-brand/70 focus:ring-2 focus:ring-brand/20"
@@ -116,14 +113,79 @@ function KeySetup({ configured, onSaved, onCancel }) {
         </Button>
       </form>
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-      {configured && (
-        <button type="button" onClick={onCancel} className="mt-3 text-xs text-muted hover:text-fg">
-          Volver al chat
-        </button>
-      )}
-      <p className="mt-6 text-xs text-subtle">
+      <p className="mt-4 text-xs text-subtle">
         Cada pregunta envía a Anthropic solo los resultados de las consultas que la IA necesita (no el Excel completo). Anthropic no usa estos datos para entrenar sus modelos.
       </p>
+    </div>
+  )
+}
+
+const ENGINES = [
+  { id: 'local', icon: Cpu, title: 'IA local', hint: 'Gratis y privada: nada sale de este computador. Más lenta y menos precisa en análisis complejos.' },
+  { id: 'claude', icon: Cloud, title: 'Claude (Anthropic)', hint: 'El mejor análisis. Pago por uso (centavos de dólar por pregunta) y requiere internet.' },
+]
+
+function EngineSettings({ status, onChange, onClose }) {
+  const [saving, setSaving] = useState(false)
+  const choose = async (provider) => {
+    if (provider === status.provider) return
+    setSaving(true)
+    try {
+      await setProvider(provider)
+      await onChange()
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="mx-auto max-w-2xl pt-4">
+      <h2 className="text-center text-xl font-semibold">¿Con qué IA trabaja el Analista?</h2>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {ENGINES.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            disabled={saving}
+            onClick={() => choose(o.id)}
+            className={cx('glass rounded-2xl p-4 text-left transition hover:bg-hover', status.provider === o.id && 'ring-2 ring-brand')}
+          >
+            <div className="flex items-center gap-2 font-semibold">
+              <o.icon size={18} className="text-brand-text" /> {o.title}
+              {status.provider === o.id && <Check size={16} className="ml-auto text-brand-text" />}
+            </div>
+            <p className="mt-1.5 text-xs text-muted">{o.hint}</p>
+          </button>
+        ))}
+      </div>
+      <div className="mt-5 rounded-2xl border border-line p-4">
+        {status.provider === 'local' ? (
+          !status.local.running ? (
+            <p className="text-sm text-muted">
+              Ollama no está abierto. Ábralo desde el menú Inicio (<b>Ollama</b>) y vuelva a esta pantalla.
+            </p>
+          ) : !status.local.installed ? (
+            <p className="text-sm text-muted">
+              Falta descargar el modelo <code>{status.local.model}</code> (~9 GB). En una terminal ejecute <code>ollama pull {status.local.model}</code>.
+            </p>
+          ) : (
+            <p className="text-sm text-muted">
+              <Check size={14} className="mr-1 inline text-emerald-400" />
+              Lista: modelo <code>{status.local.model}</code> en su tarjeta de video. La primera pregunta tarda un poco más mientras se carga.
+            </p>
+          )
+        ) : (
+          <KeySetup configured={status.hasKey} onSaved={onChange} />
+        )}
+      </div>
+      {status.configured && (
+        <div className="mt-4 text-center">
+          <Button variant="primary" onClick={onClose}>
+            Ir al chat
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -159,7 +221,7 @@ export default function Analyst() {
     const ctrl = new AbortController()
     abort.current = ctrl
     try {
-      const r = await askAnalyst({ question, history: history.current, branchId, signal: ctrl.signal, onStep: (s) => setLiveSteps((x) => [...x, s]) })
+      const r = await askAnalyst({ question, history: history.current, branchId, provider: status?.provider, signal: ctrl.signal, onStep: (s) => setLiveSteps((x) => [...x, s]) })
       setMessages((m) => [...m, { role: 'assistant', ...r }])
     } catch (e) {
       // la conversación vuelve a como estaba antes de esta pregunta
@@ -179,7 +241,7 @@ export default function Analyst() {
     setMessages([])
   }
 
-  const needsKey = status?.available && (!status.configured || setup)
+  const showSettings = status?.available && (!status.configured || setup)
 
   return (
     <>
@@ -195,11 +257,11 @@ export default function Analyst() {
             )}
             <span className="glass inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-muted">
               <span className={`size-2 rounded-full ${status?.configured ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              Claude Opus 5.5 · {isRealData ? 'datos SAP' : 'demostración'}
-              {status?.configured && <span className="text-subtle">· {usd(status.usage?.usd)} este mes</span>}
+              {status?.provider === 'local' ? `IA local · ${status.local.model}` : 'Claude Opus 5.5'} · {isRealData ? 'datos SAP' : 'demostración'}
+              {status?.provider === 'claude' && status.configured && <span className="text-subtle">· {usd(status.usage?.usd)} este mes</span>}
             </span>
-            {status?.configured && (
-              <Button size="sm" variant="ghost" onClick={() => setSetup(true)} aria-label="Configurar clave">
+            {status?.available && (
+              <Button size="sm" variant="ghost" onClick={() => setSetup(true)} aria-label="Elegir IA">
                 <Settings size={15} />
               </Button>
             )}
@@ -211,9 +273,9 @@ export default function Analyst() {
           <div className="mx-auto max-w-md pt-16 text-center text-sm text-muted">
             El Analista necesita el servidor de WEST IA de este computador. Ábralo desde el acceso <b>West IA</b> del escritorio.
           </div>
-        ) : needsKey ? (
+        ) : showSettings ? (
           <div className="flex-1 overflow-y-auto p-5">
-            <KeySetup configured={status.configured} onSaved={() => (setSetup(false), refresh())} onCancel={() => setSetup(false)} />
+            <EngineSettings status={status} onChange={refresh} onClose={() => setSetup(false)} />
           </div>
         ) : (
           <>

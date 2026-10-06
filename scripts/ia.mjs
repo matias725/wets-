@@ -1,30 +1,40 @@
-// Puente entre la web y Claude (Anthropic). Corre dentro de servidor.mjs.
+// Puente entre la web y la IA del Analista. Corre dentro de servidor.mjs.
 //
-// - La clave de API se guarda en .clave-ia.json (fuera de git y nunca se envía
-//   al navegador).
-// - El navegador ejecuta las consultas sobre los datos y solo manda a Claude
-//   los resultados que la IA pide; este puente agrega la clave y reenvía.
-// - El gasto aproximado de cada mes queda en public/data/ia-uso.json.
+// Dos motores, se elige en la app:
+// - local: Ollama en este computador (gratis, nada sale del equipo).
+// - claude: Claude Opus 5.5 de Anthropic (pago por uso, mejor análisis). La
+//   clave se guarda en .clave-ia.json (fuera de git, nunca va al navegador).
+//
+// El navegador ejecuta las consultas sobre los datos y manda a la IA solo los
+// resultados que pide. Las respuestas se devuelven siempre con la forma de la
+// API de Anthropic (bloques text / tool_use), sea cual sea el motor.
 import fs from 'node:fs'
 import path from 'node:path'
 import Anthropic from '@anthropic-ai/sdk'
 
-const MODEL = 'claude-opus-5-5'
+const CLAUDE_MODEL = 'claude-opus-5-5'
 // US$ por millón de tokens (Claude Opus 5.5)
 const PRICE = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 }
+const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434'
+const LOCAL_MODEL = process.env.WEST_LOCAL_MODEL || 'qwen3:14b'
+const LOCAL_CTX = 24_576
 const MAX_BODY = 25 * 1024 * 1024
 
 export function createIaHandler({ root, dataDir, log }) {
   const KEY_FILE = path.join(root, '.clave-ia.json')
+  const CONFIG_FILE = path.join(root, '.config-ia.json')
   const USAGE_FILE = path.join(dataDir, 'ia-uso.json')
 
-  const readKey = () => {
+  const readJson = (file) => {
     try {
-      return JSON.parse(fs.readFileSync(KEY_FILE, 'utf8')).apiKey || process.env.ANTHROPIC_API_KEY || ''
+      return JSON.parse(fs.readFileSync(file, 'utf8'))
     } catch {
-      return process.env.ANTHROPIC_API_KEY || ''
+      return {}
     }
   }
+  const readKey = () => readJson(KEY_FILE).apiKey || process.env.ANTHROPIC_API_KEY || ''
+  const readProvider = () => readJson(CONFIG_FILE).provider || (readKey() ? 'claude' : 'local')
+
   let client = null
   let clientKey = ''
   const getClient = () => {
@@ -37,16 +47,20 @@ export function createIaHandler({ root, dataDir, log }) {
     return client
   }
 
-  const readUsage = () => {
+  async function localStatus() {
     try {
-      return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'))
+      const res = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(2000) })
+      const { models = [] } = await res.json()
+      const installed = models.some((m) => m.name === LOCAL_MODEL || m.name === `${LOCAL_MODEL}:latest`)
+      return { running: true, installed }
     } catch {
-      return {}
+      return { running: false, installed: false }
     }
   }
+
   function addUsage(usage) {
     const month = new Date().toISOString().slice(0, 7)
-    const all = readUsage()
+    const all = readJson(USAGE_FILE)
     const m = (all[month] ??= { requests: 0, usd: 0 })
     const usd =
       ((usage.input_tokens ?? 0) * PRICE.input +
@@ -105,6 +119,92 @@ export function createIaHandler({ root, dataDir, log }) {
     return [500, e?.message || String(e)]
   }
 
+  // ------------------------------------------------------------ motor Claude
+  async function askClaude({ system, tools, messages, effort }) {
+    const c = getClient()
+    if (!c) throw Object.assign(new Error('Falta configurar la clave de Anthropic.'), { status: 409 })
+    const stream = c.beta.messages.stream({
+      model: CLAUDE_MODEL,
+      max_tokens: 32000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : 'high' },
+      cache_control: { type: 'ephemeral' },
+      system,
+      tools,
+      messages,
+    })
+    const msg = await stream.finalMessage()
+    const usd = addUsage(msg.usage)
+    return { content: msg.content, stop_reason: msg.stop_reason, stop_details: msg.stop_details ?? null, usd }
+  }
+
+  // ------------------------------------------------------------ motor local
+  /** Conversación con forma Anthropic → mensajes de Ollama. */
+  function toOllama(system, messages) {
+    const out = [{ role: 'system', content: system }]
+    const names = new Map()
+    for (const m of messages) {
+      if (typeof m.content === 'string') {
+        out.push({ role: m.role, content: m.content })
+        continue
+      }
+      if (m.role === 'assistant') {
+        const text = m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+        const calls = m.content.filter((b) => b.type === 'tool_use')
+        calls.forEach((b) => names.set(b.id, b.name))
+        out.push({ role: 'assistant', content: text, ...(calls.length ? { tool_calls: calls.map((b) => ({ function: { name: b.name, arguments: b.input } })) } : {}) })
+        continue
+      }
+      for (const b of m.content) {
+        if (b.type === 'tool_result') out.push({ role: 'tool', tool_name: names.get(b.tool_use_id), content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content) })
+        else if (b.type === 'text') out.push({ role: 'user', content: b.text })
+      }
+    }
+    return out
+  }
+
+  async function askLocal({ system, tools, messages }) {
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LOCAL_MODEL,
+        stream: false,
+        think: false,
+        keep_alive: '30m',
+        options: { num_ctx: LOCAL_CTX, temperature: 0.3 },
+        tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+        messages: toOllama(system, messages),
+      }),
+    }).catch(() => {
+      throw Object.assign(new Error('La IA local (Ollama) no está abierta en este computador.'), { status: 503 })
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const msg = data.error || `Error ${res.status}`
+      if (/not found/i.test(msg)) throw Object.assign(new Error(`Falta descargar el modelo local ${LOCAL_MODEL}.`), { status: 503 })
+      throw Object.assign(new Error(`IA local: ${msg}`), { status: 502 })
+    }
+    const msg = data.message ?? {}
+    const stamp = Date.now().toString(36)
+    const calls = (msg.tool_calls ?? []).map((tc, i) => {
+      let input = tc.function?.arguments ?? {}
+      if (typeof input === 'string') {
+        try {
+          input = JSON.parse(input)
+        } catch {
+          input = {}
+        }
+      }
+      return { type: 'tool_use', id: `local_${stamp}_${i}`, name: tc.function?.name, input }
+    })
+    const text = String(msg.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+    const content = [...(text ? [{ type: 'text', text }] : []), ...calls]
+    return { content, stop_reason: calls.length ? 'tool_use' : data.done_reason === 'length' ? 'max_tokens' : 'end_turn', usd: 0 }
+  }
+
   /** Devuelve true si atendió la ruta. */
   return async function handle(req, res, pathname) {
     if (!pathname.startsWith('/api/ia/')) return false
@@ -118,7 +218,28 @@ export function createIaHandler({ root, dataDir, log }) {
     try {
       if (route === 'estado' && req.method === 'GET') {
         const month = new Date().toISOString().slice(0, 7)
-        json(res, 200, { configured: Boolean(readKey()), model: MODEL, usage: readUsage()[month] ?? { requests: 0, usd: 0 } })
+        const provider = readProvider()
+        const local = await localStatus()
+        const hasKey = Boolean(readKey())
+        json(res, 200, {
+          provider,
+          configured: provider === 'claude' ? hasKey : local.installed,
+          model: provider === 'claude' ? 'Claude Opus 5.5' : LOCAL_MODEL,
+          hasKey,
+          local: { ...local, model: LOCAL_MODEL },
+          usage: readJson(USAGE_FILE)[month] ?? { requests: 0, usd: 0 },
+        })
+        return true
+      }
+      if (route === 'proveedor' && req.method === 'POST') {
+        const { provider } = await readBody(req)
+        if (!['local', 'claude'].includes(provider)) {
+          json(res, 400, { error: 'Motor desconocido' })
+          return true
+        }
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...readJson(CONFIG_FILE), provider }))
+        log(`Analista IA: motor cambiado a ${provider === 'local' ? 'IA local' : 'Claude'}.`)
+        json(res, 200, { provider })
         return true
       }
       if (route === 'clave' && req.method === 'POST') {
@@ -131,7 +252,7 @@ export function createIaHandler({ root, dataDir, log }) {
         }
         // se prueba antes de guardarla
         try {
-          await new Anthropic({ apiKey: key }).models.retrieve(MODEL)
+          await new Anthropic({ apiKey: key }).models.retrieve(CLAUDE_MODEL)
         } catch (e) {
           const [status, error] = apiError(e)
           log(`Analista IA: clave rechazada (${error})`)
@@ -139,41 +260,23 @@ export function createIaHandler({ root, dataDir, log }) {
           return true
         }
         fs.writeFileSync(KEY_FILE, JSON.stringify({ apiKey: key }))
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...readJson(CONFIG_FILE), provider: 'claude' }))
         log('Analista IA: clave de Anthropic configurada.')
         json(res, 200, { configured: true })
         return true
       }
       if (route === 'mensaje' && req.method === 'POST') {
-        const c = getClient()
-        if (!c) {
-          json(res, 409, { error: 'Falta configurar la clave de Anthropic.' })
-          return true
-        }
-        const { system, tools, messages, effort } = await readBody(req)
-        if (!Array.isArray(messages) || !messages.length) {
+        const body = await readBody(req)
+        if (!Array.isArray(body.messages) || !body.messages.length) {
           json(res, 400, { error: 'Sin mensajes' })
           return true
         }
-        const stream = c.beta.messages.stream({
-          model: MODEL,
-          max_tokens: 32000,
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default',
-          thinking: { type: 'adaptive' },
-          output_config: { effort: ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : 'high' },
-          cache_control: { type: 'ephemeral' },
-          system,
-          tools,
-          messages,
-        })
-        const msg = await stream.finalMessage()
-        const usd = addUsage(msg.usage)
-        json(res, 200, { content: msg.content, stop_reason: msg.stop_reason, stop_details: msg.stop_details ?? null, usd })
+        json(res, 200, readProvider() === 'claude' ? await askClaude(body) : await askLocal(body))
         return true
       }
       json(res, 404, { error: 'Ruta desconocida' })
     } catch (e) {
-      const [status, error] = apiError(e)
+      const [status, error] = e?.status && !(e instanceof Anthropic.APIError) ? [e.status, e.message] : apiError(e)
       log(`Analista IA: ${error}`)
       if (!res.headersSent) json(res, status, { error })
     }

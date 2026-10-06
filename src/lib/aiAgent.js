@@ -8,7 +8,8 @@ import {
 import { WORK_ORDERS } from '@/data/dataset'
 import { CATEGORY_BY_ID, VEHICLE_STATUS } from '@/data/catalog'
 
-const MAX_RESULT_CHARS = 40_000
+// la IA local tiene menos memoria de trabajo: resultados más cortos
+const MAX_RESULT_CHARS = { claude: 40_000, local: 9_000 }
 const MAX_STEPS = 24
 const DAY = 864e5
 
@@ -636,18 +637,18 @@ function describeStep(name, input) {
   return `${base}${by}${bits ? ` (${bits})` : ''}`
 }
 
-function clip(result) {
+function clip(result, max) {
   let text = JSON.stringify(result)
-  if (text.length <= MAX_RESULT_CHARS) return text
+  if (text.length <= max) return text
   // recorta el arreglo más largo hasta que quepa
   const copy = structuredClone(result)
   const arrKey = Object.keys(copy).filter((k) => Array.isArray(copy[k])).sort((a, b) => copy[b].length - copy[a].length)[0]
-  while (arrKey && copy[arrKey].length > 1 && text.length > MAX_RESULT_CHARS) {
+  while (arrKey && copy[arrKey].length > 1 && text.length > max) {
     copy[arrKey] = copy[arrKey].slice(0, Math.floor(copy[arrKey].length * 0.7))
     copy.aviso = `Resultado recortado a ${copy[arrKey].length} elementos de "${arrKey}" por tamaño. Use filtros o agrupe para precisar.`
     text = JSON.stringify(copy)
   }
-  return text.length > MAX_RESULT_CHARS ? text.slice(0, MAX_RESULT_CHARS) + '…[recortado]' : text
+  return text.length > max ? text.slice(0, max) + '…[recortado]' : text
 }
 
 export async function runTool(name, input, charts = []) {
@@ -731,12 +732,27 @@ export async function getAiStatus() {
 }
 
 export const saveApiKey = (apiKey) => post('/api/ia/clave', { apiKey })
+export const setProvider = (provider) => post('/api/ia/proveedor', { provider })
+
+/**
+ * Para la IA local: los resultados de preguntas anteriores se resumen a una
+ * marca, así la conversación cabe en su memoria (si no, Ollama corta el inicio
+ * y se pierden las instrucciones).
+ */
+function compactForLocal(history, turnStart) {
+  return history.map((m, i) =>
+    i >= turnStart || m.role !== 'user' || typeof m.content === 'string'
+      ? m
+      : { ...m, content: m.content.map((b) => (b.type === 'tool_result' ? { ...b, content: '[resultado de una pregunta anterior, omitido]' } : b)) },
+  )
+}
 
 /**
  * Responde una pregunta. history = mensajes de la API de turnos anteriores
  * (se modifica agregando los de este turno). onStep(texto) informa el avance.
  */
-export async function askAnalyst({ question, history, branchId, onStep, signal }) {
+export async function askAnalyst({ question, history, branchId, provider = 'claude', onStep, signal }) {
+  const turnStart = history.length
   const branch = branchId && branchId !== ALL_BRANCHES ? branchName(branchId) : null
   history.push({
     role: 'user',
@@ -748,7 +764,8 @@ export async function askAnalyst({ question, history, branchId, onStep, signal }
   let usd = 0
   for (let i = 0; i < MAX_STEPS; i++) {
     if (signal?.aborted) throw new Error('Consulta cancelada')
-    const res = await post('/api/ia/mensaje', { system, tools: TOOLS, messages: history })
+    const messages = provider === 'local' ? compactForLocal(history, turnStart) : history
+    const res = await post('/api/ia/mensaje', { system, tools: TOOLS, messages })
     usd += res.usd || 0
     history.push({ role: 'assistant', content: res.content })
     if (res.stop_reason === 'refusal') {
@@ -768,7 +785,7 @@ export async function askAnalyst({ question, history, branchId, onStep, signal }
         onStep?.(label, steps.length)
         try {
           const out = await runTool(c.name, input, charts)
-          return { type: 'tool_result', tool_use_id: c.id, content: clip(out), ...(out?.error ? { is_error: true } : {}) }
+          return { type: 'tool_result', tool_use_id: c.id, content: clip(out, MAX_RESULT_CHARS[provider] ?? MAX_RESULT_CHARS.claude), ...(out?.error ? { is_error: true } : {}) }
         } catch (e) {
           return { type: 'tool_result', tool_use_id: c.id, content: `Error: ${e?.message || e}`, is_error: true }
         }

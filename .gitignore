@@ -34,3 +34,4 @@ public/local/
 
 # Clave de Anthropic del Analista IA: solo en este equipo
 .clave-ia.json
+.config-ia.json
