@@ -2,6 +2,7 @@
 // Para conectar WEST IA real, reemplazar el contenido de cada función por una
 // llamada al puente FastAPI (api_bridge.py) manteniendo la misma forma de datos.
 import { toast } from 'sonner'
+import { date, num } from '@/lib/format'
 import { BRANCHES, BRANCH_BY_ID, ALL_BRANCHES } from './branches'
 import { ACTIVE_SAP_STATUS, CATEGORY_BY_ID, KANBAN_COLUMNS, VEHICLE_STATUS } from './catalog'
 import { COMPANIES, PERSONS, RESPONSIBLES, FALLBACK_RESPONSIBLE } from './people'
@@ -733,6 +734,67 @@ export function getWorkshopDays(branchId = ALL_BRANCHES, { from, to, includePrep
     })
   }
   return { periodDays, rows: rows.sort((a, b) => b.days - a.days) }
+}
+
+/**
+ * OT que habría que cerrar (o revisar) en SAP, con el motivo y la evidencia.
+ * Sirve para que los talleres ordenen el SAP: sin esto, los días en taller y
+ * los reportes salen inflados.
+ */
+export const CLOSE_REASONS = {
+  released: { label: 'Unidad liberada según gestión', action: 'Cerrar la OT en SAP', priority: 1 },
+  finished: { label: 'Finalizada sin fecha de cierre', action: 'Cerrar / facturar en SAP', priority: 2 },
+  superseded: { label: 'El vehículo tuvo otra OT después', action: 'Revisar y cerrar si ya salió', priority: 3 },
+  stale: { label: 'Más de 60 días abierta y sin costo', action: 'Revisar si sigue vigente', priority: 4 },
+}
+export function getOrdersToClose(branchId = ALL_BRANCHES) {
+  const rows = []
+  for (const o of WORK_ORDERS) {
+    if (!inBranch(branchId)(o)) continue
+    const active = ACTIVE_SAP_STATUS.has(o.sapStatus)
+    const m = { ...EMPTY_MANAGEMENT, ...(state.management[o.workOrder] || {}) }
+    let reason = null
+    let evidence = ''
+    if (active && ['unidad liberada', 'solo pendiente cierre de ot'].includes(m.realStatus.toLowerCase())) {
+      reason = 'released'
+      evidence = `Estado real: ${m.realStatus}${m.updatedAt ? ` (${date(m.updatedAt)})` : ''}`
+    } else if (o.sapStatus === 'Finalizada' && !o.closedDate) {
+      reason = 'finished'
+      evidence = 'Estado SAP "Finalizada" sin fecha de cierre'
+    } else if (active) {
+      const later = (ordersByPlate.get(o.plate) ?? []).filter((p) => p !== o && p.receivedDate > o.receivedDate && p.closedDate && !ACTIVE_SAP_STATUS.has(p.sapStatus))
+      const back = later.find((p) => o.mileage > 0 && p.mileage > o.mileage + 300) ?? later.at(-1)
+      if (back) {
+        reason = 'superseded'
+        evidence = `OT ${back.workOrder}: ingresó ${date(back.receivedDate)} y se cerró ${date(back.closedDate)}${back.mileage > o.mileage + 300 && o.mileage > 0 ? ` con ${num(back.mileage - o.mileage)} km más` : ''}`
+      } else if (o.totalCost === 0 && daysBetween(o.receivedDate) > 60) {
+        reason = 'stale'
+        evidence = `${daysBetween(o.receivedDate)} días abierta sin repuestos ni mano de obra cargados`
+      }
+    }
+    if (!reason) continue
+    const v = vehicleByPlate(o.plate)
+    rows.push({
+      reason,
+      reasonLabel: CLOSE_REASONS[reason].label,
+      action: CLOSE_REASONS[reason].action,
+      priority: CLOSE_REASONS[reason].priority,
+      evidence,
+      workOrder: o.workOrder,
+      plate: o.plate,
+      vehicle: v ? `${v.brand} ${v.model}` : '',
+      branch: o.branchId ? branchName(o.branchId) : o.branchRaw || 'Sin sucursal',
+      client: o.clientName || '',
+      sapStatus: o.sapStatus,
+      receivedDate: o.receivedDate,
+      daysOpen: daysBetween(o.receivedDate),
+      createdBy: o.createdBy || '',
+      responsible: m.responsible || '',
+      totalCost: o.totalCost,
+      reasonText: o.reason,
+    })
+  }
+  return rows.sort((a, b) => a.priority - b.priority || a.branch.localeCompare(b.branch) || b.daysOpen - a.daysOpen)
 }
 
 /** Indicadores por sucursal para compararlas entre sí (no depende del filtro de sucursal). */

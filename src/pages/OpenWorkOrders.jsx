@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AlertOctagon, CalendarX, Columns3, Download, ExternalLink, List, Package, ShieldCheck, UserX, X } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { TODAY, getOpenWorkOrders, iso } from '@/data/api'
+import { TODAY, getOpenWorkOrders, getOrdersToClose, iso } from '@/data/api'
 import { INTERVENTION_COLOR, INTERVENTION_TYPES, PRIORITIES, PRIORITY_COLOR } from '@/data/catalog'
 import { Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -14,7 +14,7 @@ import { PageHeader, SearchInput, Segmented } from '@/components/ui/misc'
 import { ManagementDrawer } from '@/components/ot/ManagementDrawer'
 import { KanbanBoard } from '@/components/ot/KanbanBoard'
 import { date } from '@/lib/format'
-import { exportOpenOrders } from '@/lib/excel/exports'
+import { exportOpenOrders, exportOrdersToClose } from '@/lib/excel/exports'
 
 const QUICK = [
   { id: 'critical', label: 'Críticas', hint: 'Prioridad o seguridad', icon: AlertOctagon, color: '#ef4444' },
@@ -36,6 +36,7 @@ const DAY_RANGES = [
 export default function OpenWorkOrders() {
   const [params, setParams] = useSearchParams()
   const all = useData((b) => getOpenWorkOrders(b))
+  const toClose = useData((b) => getOrdersToClose(b))
   const [query, setQuery] = useState('')
   const [client, setClient] = useState('all')
   const [type, setType] = useState('all')
@@ -157,6 +158,11 @@ export default function OpenWorkOrders() {
                 { value: 'board', label: 'Tablero', icon: Columns3 },
               ]}
             />
+            {toClose.length > 0 && (
+              <Button onClick={() => exportOrdersToClose(toClose)} title="OT que siguen abiertas en SAP pero ya salieron, terminaron o hay que revisar">
+                <Download size={16} /> OT para cerrar en SAP ({toClose.length})
+              </Button>
+            )}
             <Button onClick={exportExcel}>
               <Download size={16} /> Exportar Excel
             </Button>

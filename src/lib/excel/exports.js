@@ -304,6 +304,55 @@ export function exportCostRanking(rows, { period } = {}) {
   }, rows.length)
 }
 
+// ------------------------------------------------------ OT para cerrar en SAP
+export function exportOrdersToClose(rows) {
+  const reasons = groupBy(rows, (r) => r.reasonLabel, () => 1, { top: 6 })
+  const branches = groupBy(rows, (r) => r.branch, () => 1, { top: 15, others: false })
+  return save(`OT para cerrar en SAP ${iso(TODAY)}.xlsx`, {
+    title: 'OT para cerrar o revisar en SAP',
+    subtitle: subtitleOf('para enviar a cada taller · ordenadas por prioridad y sucursal'),
+    sheets: [
+      {
+        name: 'Resumen',
+        kind: 'dashboard',
+        kpis: [
+          { label: 'OT para cerrar o revisar', value: rows.length, fmt: 'int' },
+          { label: 'Liberadas sin cerrar', value: rows.filter((r) => r.reason === 'released').length, fmt: 'int', color: 'FFEF4444' },
+          { label: 'Finalizadas sin cierre', value: rows.filter((r) => r.reason === 'finished').length, fmt: 'int', color: 'FFF97316' },
+          { label: 'Para revisar', value: rows.filter((r) => ['superseded', 'stale'].includes(r.reason)).length, fmt: 'int', color: 'FF3B82F6' },
+        ],
+        charts: [
+          { type: 'doughnut', title: 'Por motivo', fmt: 'int', categories: cats(reasons), series: [series('OT', reasons)] },
+          { type: 'barH', title: 'Por sucursal', fmt: 'int', labels: true, categories: cats(branches), series: [series('OT', branches)] },
+        ],
+        notes: [
+          'Por qué importa: una OT que sigue abierta en SAP cuenta como vehículo detenido. Infla los días en taller, la disponibilidad y los reportes.',
+          'Prioridad 1: la gestión dice que la unidad ya salió. 2: el trabajo terminó pero falta cerrar o facturar. 3 y 4: revisar caso a caso.',
+          'Use el filtro de la columna "Sucursal" en la hoja "OT" para enviar a cada taller solo lo suyo.',
+        ],
+      },
+      detail('OT', 'OT para cerrar o revisar en SAP', [
+        { header: 'Prioridad', value: 'priority', fmt: 'int', scale: 'good-high' },
+        { header: 'Sucursal', value: 'branch', bold: true },
+        { header: 'OT', value: 'workOrder', bold: true },
+        { header: 'Patente', value: 'plate' },
+        { header: 'Vehículo', value: 'vehicle' },
+        { header: 'Cliente', value: 'client' },
+        { header: 'Motivo', value: 'reasonLabel' },
+        { header: 'Qué hacer', value: 'action', bold: true },
+        { header: 'Evidencia', value: 'evidence', wrap: true, width: 46 },
+        { header: 'Estado SAP', value: 'sapStatus' },
+        { header: 'Ingreso', value: 'receivedDate', fmt: 'date' },
+        { header: 'Días abierta', value: 'daysOpen', fmt: 'int', scale: 'bad-high' },
+        { header: 'Creó la OT', value: 'createdBy' },
+        { header: 'Responsable (gestión)', value: 'responsible' },
+        { header: 'Motivo de la OT', value: 'reasonText', wrap: true, width: 40 },
+        { header: 'Hecho', value: () => null, list: ['Cerrada', 'Revisada: sigue abierta'], width: 18 },
+      ], rows, { freezeCols: 3, note: `${rows.length} OT · marque la columna amarilla "Hecho" a medida que las cierren` }),
+    ],
+  }, rows.length)
+}
+
 // ---------------------------------------------------------- días en taller
 export function exportWorkshopDays(rows, { period, periodDays }) {
   const top = rows.slice(0, 15)
