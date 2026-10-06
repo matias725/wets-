@@ -166,7 +166,15 @@ export default function VehicleDetail() {
           label="Próxima mantención"
           value={Math.abs(v.kmToMaintenance)}
           format={(n) => (!hasKm ? 'Sin registro' : v.kmToMaintenance < 0 ? `-${num(n)} km` : `${num(n)} km`)}
-          hint={!hasKm ? 'Falta kilometraje' : v.kmToMaintenance < 0 ? 'Vencida: programar ingreso' : `A los ${km(v.nextMaintenanceKm)}`}
+          hint={
+            !hasKm
+              ? 'Falta kilometraje'
+              : v.estDueDate
+                ? `A los ${km(v.nextMaintenanceKm)} · ${v.estDaysToMaintenance < 0 ? 'vencida desde' : 'aprox.'} ${date(v.estDueDate)} (${num(v.kmPerDay)} km/día)`
+                : v.kmToMaintenance < 0
+                  ? 'Vencida: programar ingreso'
+                  : `A los ${km(v.nextMaintenanceKm)}`
+          }
           icon={Wrench}
           color={!hasKm ? '#64748b' : v.kmToMaintenance < 0 ? '#ef4444' : v.kmToMaintenance < 1500 ? '#f59e0b' : '#22c55e'}
           delay={0.16}

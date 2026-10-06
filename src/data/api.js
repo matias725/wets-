@@ -104,6 +104,23 @@ WORK_ORDERS.forEach((o) => {
   ordersByPlate.get(o.plate).push(o)
 })
 
+/**
+ * Ritmo de uso (km por día) según el kilometraje de sus OT: entre la primera y
+ * la última con al menos 30 días de diferencia. Sin dos OT así, o con un ritmo
+ * imposible (error de digitación), no hay estimación.
+ */
+const usageByPlate = new Map()
+ordersByPlate.forEach((list, plate) => {
+  const ots = list.filter((o) => o.mileage > 0 && o.receivedDate).sort((a, b) => a.receivedDate.localeCompare(b.receivedDate))
+  const last = ots.at(-1)
+  if (!last) return
+  const lastDate = new Date(last.receivedDate + 'T00:00:00')
+  const first = ots.find((o) => (lastDate - new Date(o.receivedDate + 'T00:00:00')) / DAY >= 30)
+  if (!first) return
+  const kmPerDay = (last.mileage - first.mileage) / ((lastDate - new Date(first.receivedDate + 'T00:00:00')) / DAY)
+  if (kmPerDay > 0 && kmPerDay < 1500) usageByPlate.set(plate, { kmPerDay, lastKmDate: last.receivedDate })
+})
+
 // ---------------------------------------------------------------------- flota
 /**
  * Vehículos de la flota. Por defecto excluye los usados / en venta, que no
@@ -156,8 +173,18 @@ export function resetFleet() {
   commit()
 }
 
+/** Km de hoy y días para la mantención, estimados con el ritmo de uso (null si no hay ritmo). */
+function usageForecast(v) {
+  const u = usageByPlate.get(v.plate)
+  if (!u || !v.mileage) return { kmPerDay: null, estMileage: null, estDaysToMaintenance: null, estDueDate: null }
+  const estMileage = Math.max(v.mileage, Math.round(v.mileage + u.kmPerDay * daysBetween(u.lastKmDate)))
+  const days = Math.round((v.nextMaintenanceKm - estMileage) / u.kmPerDay)
+  return { kmPerDay: u.kmPerDay, estMileage, estDaysToMaintenance: days, estDueDate: iso(new Date(TODAY.getTime() + days * DAY)) }
+}
+
 function enrichVehicle(v) {
   return {
+    ...usageForecast(v),
     ...v,
     branch: v.branchId ? branchName(v.branchId) : v.branchRaw || 'Sin sucursal',
     categoryLabel: CATEGORY_BY_ID[v.category]?.label ?? v.category,
@@ -413,6 +440,24 @@ export function getMaintenanceDue(branchId = ALL_BRANCHES, withinKm = 1000) {
   return getVehicles(branchId)
     .filter((v) => v.status !== 'out' && v.mileage > 0 && v.kmToMaintenance <= withinKm)
     .sort((a, b) => a.kmToMaintenance - b.kmToMaintenance)
+}
+
+/**
+ * Mantenciones de los próximos N días. Con ritmo de uso se estima la fecha;
+ * sin él, se usa el kilometraje registrado (faltan 1.000 km o menos).
+ * due: 'late' (ya se pasó) · 'soon' (dentro del plazo).
+ */
+export function getMaintenanceForecast(branchId = ALL_BRANCHES, withinDays = 30) {
+  return getVehicles(branchId)
+    .filter((v) => v.status !== 'out' && v.mileage > 0)
+    .map((v) => {
+      const estimated = v.estDaysToMaintenance != null
+      const late = estimated ? v.estDaysToMaintenance < 0 : v.kmToMaintenance < 0
+      const soon = estimated ? v.estDaysToMaintenance <= withinDays : v.kmToMaintenance <= 1000
+      return { ...v, estimated, due: late ? 'late' : soon ? 'soon' : null }
+    })
+    .filter((v) => v.due)
+    .sort((a, b) => (a.estDaysToMaintenance ?? a.kmToMaintenance / 100) - (b.estDaysToMaintenance ?? b.kmToMaintenance / 100))
 }
 
 /**

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlarmClock, Building2, Download, TrendingUp, Wrench } from 'lucide-react'
 import { useData } from '@/hooks/useData'
 import { useApp } from '@/context/AppContext'
-import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceDue, getStalledOrders, TODAY, iso } from '@/data/api'
+import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceForecast, getStalledOrders, TODAY, iso } from '@/data/api'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +11,7 @@ import { Select } from '@/components/ui/Field'
 import { DataTable } from '@/components/ui/DataTable'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { PageHeader, Segmented } from '@/components/ui/misc'
-import { clp, cx, downloadCSV, km, monthLong, num, pct } from '@/lib/format'
+import { clp, cx, date, downloadCSV, km, monthLong, num, pct } from '@/lib/format'
 
 const TABS = [
   { value: 'ot', label: 'OT estancadas', icon: AlarmClock },
@@ -110,15 +110,35 @@ function StalledTab({ rows, minDays, setMinDays }) {
 }
 
 // ------------------------------------------------------------- mantenciones
+function DueCell({ v }) {
+  if (!v.estimated) {
+    const left = v.kmToMaintenance
+    return (
+      <div>
+        <span className="tabular font-semibold" style={{ color: left < 0 ? '#ef4444' : '#f59e0b' }}>{left < 0 ? `Vencida ${num(-left)} km` : `Faltan ${num(left)} km`}</span>
+        <div className="text-[11px] text-muted">sin ritmo de uso</div>
+      </div>
+    )
+  }
+  const days = v.estDaysToMaintenance
+  const color = days < 0 ? '#ef4444' : days <= 7 ? '#f59e0b' : '#22c55e'
+  return (
+    <div>
+      <span className="tabular font-semibold" style={{ color }}>{days < 0 ? `Vencida hace ${num(-days)} días` : days === 0 ? 'Hoy' : `En ${num(days)} días`}</span>
+      <div className="text-[11px] text-muted">{date(v.estDueDate)}</div>
+    </div>
+  )
+}
+
 function MaintenanceTab({ rows }) {
   const navigate = useNavigate()
   const [view, setView] = useState('soon')
-  const shown = view === 'soon' ? rows.filter((v) => v.kmToMaintenance >= 0) : rows.filter((v) => v.kmToMaintenance < 0)
+  const shown = rows.filter((v) => v.due === view)
   return (
     <Card className="overflow-hidden">
       <CardHeader
-        title="Mantenciones preventivas"
-        subtitle="Próxima mantención = última preventiva + 10.000 km. El kilometraje es el último registrado en una OT del SAP."
+        title="Mantenciones de los próximos 30 días"
+        subtitle="Próxima mantención = última preventiva + 10.000 km. Los km de hoy se estiman con el ritmo de uso de cada vehículo (km recorridos entre sus OT). Si tiene una sola OT o todas en el mismo mes, no hay ritmo y se usa el km registrado: aparece si le faltan 1.000 km o menos."
         icon={Wrench}
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -126,8 +146,8 @@ function MaintenanceTab({ rows }) {
               value={view}
               onChange={setView}
               options={[
-                { value: 'soon', label: `Faltan ≤ 1.000 km (${rows.filter((v) => v.kmToMaintenance >= 0).length})` },
-                { value: 'late', label: `Vencidas (${rows.filter((v) => v.kmToMaintenance < 0).length})` },
+                { value: 'soon', label: `Próximos 30 días (${rows.filter((v) => v.due === 'soon').length})` },
+                { value: 'late', label: `Vencidas (${rows.filter((v) => v.due === 'late').length})` },
               ]}
             />
             <Button
@@ -139,9 +159,14 @@ function MaintenanceTab({ rows }) {
                   { label: 'Marca', value: 'brand' },
                   { label: 'Modelo', value: 'model' },
                   { label: 'Sucursal', value: 'branch' },
-                  { label: 'Km actual', value: 'mileage' },
+                  { label: 'Cliente', value: 'client' },
+                  { label: 'Km registrado (última OT)', value: 'mileage' },
+                  { label: 'Km estimado hoy', value: (v) => v.estMileage ?? '' },
+                  { label: 'Km por día', value: (v) => (v.kmPerDay ? Math.round(v.kmPerDay) : '') },
                   { label: 'Próxima mantención (km)', value: 'nextMaintenanceKm' },
-                  { label: 'Km restantes', value: 'kmToMaintenance' },
+                  { label: 'Fecha estimada', value: (v) => v.estDueDate ?? '' },
+                  { label: 'Días restantes (negativo = vencida)', value: (v) => v.estDaysToMaintenance ?? '' },
+                  { label: 'Km restantes según km registrado', value: 'kmToMaintenance' },
                 ])
               }
             >
@@ -154,24 +179,26 @@ function MaintenanceTab({ rows }) {
         data={shown}
         pageSize={15}
         onRowClick={(v) => navigate(`/flota/${v.plate}`)}
-        emptyText={view === 'soon' ? 'Ningún vehículo a menos de 1.000 km de su mantención' : 'Ninguna mantención vencida'}
-        minWidth={720}
+        emptyText={view === 'soon' ? 'Ninguna mantención en los próximos 30 días' : 'Ninguna mantención vencida'}
+        minWidth={860}
         columns={[
           { accessorKey: 'plate', header: 'Vehículo', cell: ({ row: { original: v } }) => <Vehicle plate={v.plate} sub={`${v.brand} ${v.model}`} /> },
           { accessorKey: 'branch', header: 'Sucursal' },
-          { accessorKey: 'statusLabel', header: 'Estado', cell: (c) => <span className="text-xs text-muted">{c.getValue()}</span> },
-          { accessorKey: 'mileage', header: 'Km actual', cell: (c) => km(c.getValue()), meta: { align: 'right' } },
-          { accessorKey: 'nextMaintenanceKm', header: 'Mantención a los', cell: (c) => km(c.getValue()), meta: { align: 'right' } },
           {
-            accessorKey: 'kmToMaintenance',
-            header: 'Faltan',
-            cell: (c) => {
-              const left = c.getValue()
-              const color = left < 0 ? '#ef4444' : left <= 500 ? '#f59e0b' : '#22c55e'
-              return <span className="tabular font-semibold" style={{ color }}>{left < 0 ? `Vencida ${num(-left)} km` : `${num(left)} km`}</span>
-            },
+            id: 'km',
+            accessorFn: (v) => v.estMileage ?? v.mileage,
+            header: 'Km hoy',
+            cell: ({ row: { original: v } }) => (
+              <div>
+                <div className="tabular">{km(v.estMileage ?? v.mileage)}</div>
+                <div className="text-[11px] text-muted">{v.estimated ? `estimado · registrado ${km(v.mileage)}` : 'registrado en OT'}</div>
+              </div>
+            ),
             meta: { align: 'right' },
           },
+          { id: 'rate', accessorFn: (v) => v.kmPerDay ?? -1, header: 'Uso', cell: ({ row: { original: v } }) => (v.kmPerDay ? <span className="tabular text-muted">{num(v.kmPerDay)} km/día</span> : <span className="text-muted">—</span>), meta: { align: 'right' } },
+          { accessorKey: 'nextMaintenanceKm', header: 'Mantención a los', cell: (c) => km(c.getValue()), meta: { align: 'right' } },
+          { id: 'due', accessorFn: (v) => v.estDaysToMaintenance ?? v.kmToMaintenance / 100, header: 'Cuándo', cell: ({ row: { original: v } }) => <DueCell v={v} />, meta: { align: 'right' } },
         ]}
       />
     </Card>
@@ -339,12 +366,12 @@ export default function Alerts() {
 
   const stalled = useData((b) => getStalledOrders(b, minDays), [minDays])
   const stalled30 = useData((b) => getStalledOrders(b, 30))
-  const maintenance = useData((b) => getMaintenanceDue(b, 1000))
+  const maintenance = useData((b) => getMaintenanceForecast(b, 30))
   const ranking = useData((b) => getCostRanking(b, range), [period])
   const branches = useData(() => getBranchComparison(range), [period])
 
   const flagged = ranking.filter((r) => r.advice === 'sell').length
-  const late = maintenance.filter((v) => v.kmToMaintenance < 0).length
+  const late = maintenance.filter((v) => v.due === 'late').length
 
   return (
     <>
@@ -364,7 +391,7 @@ export default function Alerts() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="OT con más de 30 días" value={stalled30.length} hint="Unidades detenidas en taller" icon={AlarmClock} color="#ef4444" onClick={() => (setTab('ot'), setMinDays(30))} active={tab === 'ot' && minDays === 30} />
-        <KpiCard label="Mantenciones por hacer" value={maintenance.length} hint={`${late} vencidas · ${maintenance.length - late} a menos de 1.000 km`} icon={Wrench} color="#f59e0b" onClick={() => setTab('mant')} active={tab === 'mant'} delay={0.04} />
+        <KpiCard label="Mantenciones por hacer" value={maintenance.length} hint={`${late} vencidas · ${maintenance.length - late} en los próximos 30 días`} icon={Wrench} color="#f59e0b" onClick={() => setTab('mant')} active={tab === 'mant'} delay={0.04} />
         <KpiCard label="Evaluar venta" value={flagged} hint={`Vehículos con gasto muy alto · ${period.length === 4 ? period : monthLong(period)}`} icon={TrendingUp} color="#f472b6" onClick={() => setTab('gasto')} active={tab === 'gasto'} delay={0.08} />
         <KpiCard label="Sucursales comparadas" value={branches.length} hint="Disponibilidad, días en taller y gasto" icon={Building2} onClick={() => setTab('suc')} active={tab === 'suc'} delay={0.12} />
       </div>
