@@ -134,6 +134,7 @@ export function createIaHandler({ root, dataDir, log }) {
           await new Anthropic({ apiKey: key }).models.retrieve(MODEL)
         } catch (e) {
           const [status, error] = apiError(e)
+          log(`Analista IA: clave rechazada (${error})`)
           json(res, status, { error })
           return true
         }
