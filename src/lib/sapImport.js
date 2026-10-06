@@ -253,6 +253,8 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
   Object.keys(branchIds).forEach((raw) => (branchByPlace[norm(raw)] = raw))
   const tc = Object.keys(branchIds).find((raw) => norm(raw) === 'taller central')
   if (tc) branchByPlace['la serena'] ??= tc
+  const teckRaw = Object.keys(branchIds).find((raw) => norm(raw) === 'teck')
+  if (teckRaw) branchByPlace.andacollo ??= teckRaw
   const ALIAS = { 'san pedro': 'san pedro atacama', 'san pedro de atacama': 'san pedro atacama' }
   const branchOfCostCenter = (name) => {
     const m = norm(name).match(/^(?:rac ofc\.?|rac aeropuerto|lop|operaciones)\s*\(([^)]+)\)/)
@@ -260,8 +262,16 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
     const place = m[1].replace(/^faena /, '').trim()
     return branchByPlace[ALIAS[place] ?? place] ?? null
   }
+  // ciudad de una sucursal escrita dentro del nombre ("CMP ELECTRO COPIAPO")
+  const placeNames = Object.keys(branchByPlace).sort((a, b) => b.length - a.length)
+  const branchInName = (name) => {
+    const n = ` ${norm(name).replace(/[^a-z0-9]+/g, ' ')} `
+    const place = placeNames.find((p) => n.includes(` ${p} `))
+    return place ? branchByPlace[place] : null
+  }
   const vehicles = []
   const seen = new Set()
+  const ccOf = new Map()
   const thisYear = new Date().getFullYear()
   if (mWs) {
     const M = mh.map
@@ -282,7 +292,9 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
       const status = active ? 'workshop' : area === 'USADOS' ? 'sold' : area === 'PERDIDA TOTAL' ? 'out' : 'available'
       const year = Math.trunc(num(mc(r, 'ano')))
       const fuel = norm(mc(r, 'combustible'))
-      const ccBranch = branchOfCostCenter(text(mc(r, 'nombre c.costo')))
+      const ccName = text(mc(r, 'nombre c.costo'))
+      ccOf.set(plate, ccName)
+      const ccBranch = branchOfCostCenter(ccName)
       const branchRaw = ccBranch ?? last?.branchRaw ?? ''
       vehicles.push({
         plate,
@@ -313,6 +325,32 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
       })
     }
   }
+  // sin oficina ni OT propia: la sucursal donde se atiende su centro de costo
+  // (si una concentra ≥ 75 % de al menos 20 OT de esos vehículos) o la ciudad
+  // que aparece en el nombre del centro de costo
+  const ccBranches = {}
+  vehicles.forEach((v) => {
+    const cc = ccOf.get(v.plate)
+    if (!cc) return
+    const c = (ccBranches[cc] ??= {})
+    ;(byPlate.get(v.plate) ?? []).forEach((o) => o.branchRaw && (c[o.branchRaw] = (c[o.branchRaw] ?? 0) + 1))
+  })
+  const ccMain = {}
+  Object.entries(ccBranches).forEach(([cc, c]) => {
+    const total = Object.values(c).reduce((s, n) => s + n, 0)
+    const [raw, n] = Object.entries(c).sort((a, b) => b[1] - a[1])[0] ?? []
+    if (total >= 20 && n / total >= 0.75) ccMain[cc] = raw
+  })
+  vehicles.forEach((v) => {
+    if (v.branchId) return
+    const cc = ccOf.get(v.plate)
+    const raw = cc ? branchInName(cc) ?? ccMain[cc] : null
+    if (raw && branchIds[raw]) {
+      v.branchId = branchIds[raw]
+      v.branchRaw = raw
+      v.branchEstimated = true
+    }
+  })
   if (!vehicles.length) throw new Error('No se encontró la hoja del maestro de vehículos (columnas "Patente" y "Marca").')
 
   const clients = [...new Set([...vehicles.map((v) => v.clientName), ...workOrders.map((o) => o.clientName)].filter(Boolean))].sort()
