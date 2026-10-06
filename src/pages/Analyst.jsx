@@ -45,6 +45,8 @@ const MD = {
   strong: ({ children }) => <strong className="font-semibold text-fg">{children}</strong>,
   code: ({ children }) => <code className="rounded bg-[var(--line)] px-1 py-0.5 text-[12px]">{children}</code>,
   hr: () => <hr className="my-3 border-line" />,
+  // los modelos a veces inventan imágenes: los gráficos van por mostrar_grafico
+  img: () => null,
 }
 
 function Steps({ steps, live }) {

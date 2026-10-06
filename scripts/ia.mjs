@@ -16,7 +16,8 @@ const CLAUDE_MODEL = 'claude-opus-5-5'
 // US$ por millón de tokens (Claude Opus 5.5)
 const PRICE = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 }
 const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434'
-const LOCAL_MODEL = process.env.WEST_LOCAL_MODEL || 'qwen3:14b'
+// el primero instalado; qwen2.5 queda de respaldo mientras se descarga qwen3
+const LOCAL_MODELS = process.env.WEST_LOCAL_MODEL ? [process.env.WEST_LOCAL_MODEL] : ['qwen3:14b', 'qwen2.5:latest']
 const LOCAL_CTX = 24_576
 const MAX_BODY = 25 * 1024 * 1024
 
@@ -51,10 +52,11 @@ export function createIaHandler({ root, dataDir, log }) {
     try {
       const res = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(2000) })
       const { models = [] } = await res.json()
-      const installed = models.some((m) => m.name === LOCAL_MODEL || m.name === `${LOCAL_MODEL}:latest`)
-      return { running: true, installed }
+      const names = new Set(models.map((m) => m.name))
+      const model = LOCAL_MODELS.find((n) => names.has(n) || names.has(`${n}:latest`))
+      return { running: true, installed: Boolean(model), model: model ?? LOCAL_MODELS[0], best: model === LOCAL_MODELS[0] }
     } catch {
-      return { running: false, installed: false }
+      return { running: false, installed: false, model: LOCAL_MODELS[0] }
     }
   }
 
@@ -166,11 +168,12 @@ export function createIaHandler({ root, dataDir, log }) {
   }
 
   async function askLocal({ system, tools, messages }) {
+    const { model } = await localStatus()
     const res = await fetch(`${OLLAMA}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: LOCAL_MODEL,
+        model,
         stream: false,
         think: false,
         keep_alive: '30m',
@@ -184,7 +187,7 @@ export function createIaHandler({ root, dataDir, log }) {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
       const msg = data.error || `Error ${res.status}`
-      if (/not found/i.test(msg)) throw Object.assign(new Error(`Falta descargar el modelo local ${LOCAL_MODEL}.`), { status: 503 })
+      if (/not found/i.test(msg)) throw Object.assign(new Error(`Falta descargar el modelo local ${model}.`), { status: 503 })
       throw Object.assign(new Error(`IA local: ${msg}`), { status: 502 })
     }
     const msg = data.message ?? {}
@@ -224,9 +227,9 @@ export function createIaHandler({ root, dataDir, log }) {
         json(res, 200, {
           provider,
           configured: provider === 'claude' ? hasKey : local.installed,
-          model: provider === 'claude' ? 'Claude Opus 5.5' : LOCAL_MODEL,
+          model: provider === 'claude' ? 'Claude Opus 5.5' : local.model,
           hasKey,
-          local: { ...local, model: LOCAL_MODEL },
+          local,
           usage: readJson(USAGE_FILE)[month] ?? { requests: 0, usd: 0 },
         })
         return true
