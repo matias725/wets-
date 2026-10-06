@@ -13,7 +13,8 @@ import { DataTable } from '@/components/ui/DataTable'
 import { PageHeader, SearchInput, Segmented } from '@/components/ui/misc'
 import { ManagementDrawer } from '@/components/ot/ManagementDrawer'
 import { KanbanBoard } from '@/components/ot/KanbanBoard'
-import { date, downloadCSV } from '@/lib/format'
+import { date } from '@/lib/format'
+import { exportOpenOrders } from '@/lib/excel/exports'
 
 const QUICK = [
   { id: 'critical', label: 'Críticas', hint: 'Prioridad o seguridad', icon: AlertOctagon, color: '#ef4444' },
@@ -139,25 +140,7 @@ export default function OpenWorkOrders() {
     [],
   )
 
-  const exportCSV = () =>
-    downloadCSV(`west-ot-abiertas-${iso(TODAY)}.csv`, rows, [
-      { label: 'Patente', value: 'plate' },
-      { label: 'Vehículo', value: 'vehicle' },
-      { label: 'N° OT', value: 'workOrder' },
-      { label: 'Sucursal', value: 'branch' },
-      { label: 'Cliente', value: 'client' },
-      { label: 'Estado SAP', value: 'sapStatus' },
-      { label: 'Ingreso', value: (o) => date(o.receivedDate) },
-      { label: 'Días detenida', value: 'daysOpen' },
-      { label: 'Tipo intervención', value: 'interventionType' },
-      { label: 'Motivo', value: 'reason' },
-      { label: 'Prioridad', value: (o) => o.management.priority },
-      { label: 'Estado real', value: (o) => o.management.realStatus },
-      { label: 'Bloqueo', value: (o) => o.management.blocker },
-      { label: 'Responsable', value: (o) => o.management.responsible },
-      { label: 'Compromiso', value: (o) => date(o.management.commitmentDate) },
-      { label: 'Próxima acción', value: (o) => o.management.nextAction },
-    ])
+  const exportExcel = () => exportOpenOrders(rows, { filters: rows.length === all.length ? 'todas las OT abiertas' : `${rows.length} de ${all.length} OT (filtros aplicados)` })
 
   return (
     <>
@@ -174,8 +157,8 @@ export default function OpenWorkOrders() {
                 { value: 'board', label: 'Tablero', icon: Columns3 },
               ]}
             />
-            <Button onClick={exportCSV}>
-              <Download size={16} /> Exportar CSV
+            <Button onClick={exportExcel}>
+              <Download size={16} /> Exportar Excel
             </Button>
           </>
         }

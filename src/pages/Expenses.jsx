@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Building, CircleDollarSign, Download, HandCoins, ShieldCheck, Truck, Wrench, X } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { TODAY, getExpenseRows, iso, setRecovery } from '@/data/api'
+import { TODAY, getExpenseRows, setRecovery } from '@/data/api'
 import { BUSINESS_AREAS, EXPENSE_CATEGORIES, INTERVENTION_COLOR, INTERVENTION_TYPES, RECOVERY_STATUS } from '@/data/catalog'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -13,7 +13,8 @@ import { DataTable } from '@/components/ui/DataTable'
 import { PageHeader, SearchInput } from '@/components/ui/misc'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { axisProps } from '@/lib/chart'
-import { clp, clpShort, date, downloadCSV, monthLabel, pct } from '@/lib/format'
+import { clp, clpShort, date, monthLabel, pct } from '@/lib/format'
+import { exportExpenses } from '@/lib/excel/exports'
 import { toast } from 'sonner'
 
 const RECOVERY_COLOR = { 'Por revisar': '#f59e0b', 'No recuperable': '#64748b', 'A cobro': '#22c55e' }
@@ -132,22 +133,11 @@ export default function Expenses() {
   )
 
   const active = [area, type, recovery].filter((x) => x !== 'all').length + (query ? 1 : 0)
-  const exportCSV = () =>
-    downloadCSV(`west-gastos-${year}-${iso(TODAY)}.csv`, rows, [
-      { label: 'Fecha', value: (r) => date(r.date) },
-      { label: 'Patente', value: 'plate' },
-      { label: 'N° OT', value: 'workOrder' },
-      { label: 'Sucursal', value: 'branch' },
-      { label: 'Cliente', value: 'client' },
-      { label: 'Área', value: 'area' },
-      { label: 'Tipo intervención', value: 'interventionType' },
-      { label: 'Motivo', value: 'reason' },
-      { label: 'Correctivo', value: 'corrective' },
-      { label: 'Preventivo', value: 'preventive' },
-      { label: 'A cobro', value: 'charge' },
-      { label: 'Total', value: 'total' },
-      { label: 'Recuperabilidad', value: 'recovery' },
-    ])
+  const exportExcel = () =>
+    exportExpenses(rows, {
+      year,
+      filters: ['OT cerradas', area !== 'all' && `área ${area}`, type !== 'all' && type, recovery !== 'all' && recovery, query && `búsqueda "${query}"`].filter(Boolean).join(' · '),
+    })
 
   return (
     <>
@@ -155,8 +145,8 @@ export default function Expenses() {
         title="Control de Gastos"
         description="Análisis económico de mantención y recuperaciones RAC / LOP"
         actions={
-          <Button onClick={exportCSV}>
-            <Download size={16} /> Exportar CSV
+          <Button onClick={exportExcel}>
+            <Download size={16} /> Exportar Excel
           </Button>
         }
       />

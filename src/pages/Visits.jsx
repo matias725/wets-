@@ -14,7 +14,8 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Overlay'
 import { PageHeader } from '@/components/ui/misc'
-import { cx, date, downloadCSV } from '@/lib/format'
+import { cx, date } from '@/lib/format'
+import { exportVisit } from '@/lib/excel/exports'
 import { toast } from 'sonner'
 
 const RESULT_COLOR = { NUEVA: '#3b82f6', 'CONTINÚA': '#f59e0b', LIBERADA: '#22c55e' }
@@ -130,16 +131,7 @@ function VisitDetail({ visit }) {
     ['Sin OT SAP', stalled.filter((s) => s.status === 'Pendiente').length, '#ef4444'],
   ]
 
-  const exportCSV = () =>
-    downloadCSV(`west-visita-${branchName(visit.branchId).replace(/\W+/g, '-')}-${visit.date}.csv`, [...items, ...released.map((r) => ({ ...r, result: 'LIBERADA' }))], [
-      { label: 'Resultado vs anterior', value: 'result' },
-      { label: 'Revisada', value: (i) => (i.reviewed ? 'Sí' : 'No') },
-      { label: 'Patente', value: 'plate' },
-      { label: 'N° OT', value: 'workOrder' },
-      { label: 'Días', value: 'daysOpen' },
-      { label: 'Estado real', value: 'realStatus' },
-      { label: 'Responsable', value: 'responsible' },
-    ])
+  const exportExcel = () => exportVisit(visit, [...items, ...released.map((r) => ({ ...r, result: 'LIBERADA' }))], branchName(visit.branchId))
 
   return (
     <Card key={visit.id} delay={0.05}>
@@ -157,8 +149,8 @@ function VisitDetail({ visit }) {
           <Button size="sm" onClick={() => setReporting(true)}>
             <AlertTriangle size={14} /> Detenida sin OT
           </Button>
-          <Button size="sm" onClick={exportCSV}>
-            <Download size={14} /> CSV
+          <Button size="sm" onClick={exportExcel}>
+            <Download size={14} /> Excel
           </Button>
           {isOpen && (
             <Button size="sm" variant="primary" onClick={() => {

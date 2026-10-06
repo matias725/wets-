@@ -11,8 +11,9 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Field'
 import { DataTable } from '@/components/ui/DataTable'
 import { PageHeader, SearchInput } from '@/components/ui/misc'
-import { cx, date, downloadCSV, km, num } from '@/lib/format'
+import { cx, date, km, num } from '@/lib/format'
 import { exportFleetExcel } from '@/lib/fleetExcel'
+import { exportFleet } from '@/lib/excel/exports'
 import { ImportFleetModal } from '@/components/fleet/ImportFleetModal'
 import { SapImportModal } from '@/components/fleet/SapImportModal'
 import { clearSapData } from '@/lib/sapStore'
@@ -127,22 +128,7 @@ export default function Fleet() {
     [hasTransmission],
   )
 
-  const exportCSV = () =>
-    downloadCSV(`west-flota-${iso(TODAY)}.csv`, rows, [
-      { label: 'Patente', value: 'plate' },
-      { label: 'Marca', value: 'brand' },
-      { label: 'Modelo', value: 'model' },
-      { label: 'Categoría', value: 'categoryLabel' },
-      { label: 'Año', value: 'year' },
-      { label: 'Transmisión', value: 'transmission' },
-      { label: 'Combustible', value: 'fuel' },
-      { label: 'Sucursal', value: 'branch' },
-      { label: 'Estado', value: 'statusLabel' },
-      { label: 'Cliente', value: 'client' },
-      { label: 'Kilometraje', value: 'mileage' },
-      { label: 'Próxima mantención (km)', value: 'nextMaintenanceKm' },
-      { label: 'VIN', value: 'vin' },
-    ])
+  const exportReport = () => exportFleet(rows, { filters: rows.length === vehicles.length ? 'toda la flota' : `${rows.length} de ${vehicles.length} vehículos (filtros aplicados)` })
 
   return (
     <>
@@ -151,8 +137,8 @@ export default function Fleet() {
         description={`${vehicles.length} vehículos · ${rows.length} con los filtros actuales`}
         actions={
           <>
-            <Button onClick={exportCSV} title="Exportar lo filtrado en CSV">
-              <Download size={16} /> CSV
+            <Button onClick={exportReport} title="Informe en Excel con resumen y gráficos de lo filtrado">
+              <Download size={16} /> Informe Excel
             </Button>
             <Button
               disabled={exporting}
@@ -167,7 +153,7 @@ export default function Fleet() {
               }}
               title="Exportar lo filtrado en Excel (se puede volver a importar)"
             >
-              <FileSpreadsheet size={16} /> {exporting ? 'Generando…' : 'Exportar Excel'}
+              <FileSpreadsheet size={16} /> {exporting ? 'Generando…' : 'Excel editable'}
             </Button>
             <Button onClick={() => setImporting(true)} title="Actualizar vehículos con la plantilla de flota">
               <Upload size={16} /> Importar plantilla

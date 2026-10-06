@@ -1,5 +1,4 @@
 const clpFormatter = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
-import { toast } from 'sonner'
 const numberFormatter = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 })
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic']
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -31,25 +30,5 @@ export function dateShort(isoDate) {
 export const monthLabel = (ym) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`
 export const monthLong = (ym) => `${MONTHS_LONG[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`
 export const todayLong = (d = new Date()) => `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]} de ${d.getFullYear()}`
-
-export function downloadCSV(filename, rows, columns) {
-  const escape = (v) => {
-    const s = v == null ? '' : String(v)
-    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  // Punto y coma: Excel en configuración regional chilena lo abre en columnas.
-  const lines = [columns.map((c) => escape(c.label)).join(';')]
-  rows.forEach((r) => lines.push(columns.map((c) => escape(typeof c.value === 'function' ? c.value(r) : r[c.value])).join(';')))
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-  toast.success(`Descargado: ${filename}`, { description: `${rows.length.toLocaleString('es-CL')} filas` })
-}
 
 export const cx = (...parts) => parts.filter(Boolean).join(' ')

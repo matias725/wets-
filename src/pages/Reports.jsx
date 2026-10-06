@@ -8,10 +8,10 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/misc'
-import { clp, clpShort, date, downloadCSV, monthLong, num, pct } from '@/lib/format'
-import { toast } from 'sonner'
+import { clp, clpShort, date, monthLong, num, pct } from '@/lib/format'
+import { exportMonthly, exportTable } from '@/lib/excel/exports'
 
-function ReportCard({ icon: Icon, title, description, columns, rows, filename, delay }) {
+function ReportCard({ icon: Icon, title, description, columns, rows, filename, delay, chart, period }) {
   // preview: false => la columna va en el CSV pero no en la vista previa angosta
   const shown = columns.filter((c) => c.preview !== false)
   return (
@@ -26,8 +26,12 @@ function ReportCard({ icon: Icon, title, description, columns, rows, filename, d
             <p className="mt-0.5 text-xs text-muted">{description}</p>
           </div>
         </div>
-        <Button size="sm" onClick={() => downloadCSV(filename, rows, columns.map((c) => ({ label: c.label, value: c.csv ?? c.value })))} disabled={!rows.length}>
-          <Download size={14} /> CSV
+        <Button
+          size="sm"
+          onClick={() => exportTable({ filename, title, subtitle: period ?? description, rows, chart, columns: columns.map((c) => ({ header: c.label, value: c.value, fmt: c.xfmt, total: c.total, bar: c.bar, scale: c.scale })) })}
+          disabled={!rows.length}
+        >
+          <Download size={14} /> Excel
         </Button>
       </div>
       <div className="mt-4 flex-1 overflow-x-auto">
@@ -53,7 +57,7 @@ function ReportCard({ icon: Icon, title, description, columns, rows, filename, d
         </table>
         {!rows.length && <div className="py-10 text-center text-sm text-muted">Sin datos en el período</div>}
       </div>
-      {rows.length > 7 && <div className="border-t border-line px-5 py-2.5 text-xs text-muted">Vista previa: 7 de {rows.length} filas. El CSV incluye todas.</div>}
+      {rows.length > 7 && <div className="border-t border-line px-5 py-2.5 text-xs text-muted">Vista previa: 7 de {rows.length} filas. El Excel incluye todas.</div>}
     </Card>
   )
 }
@@ -84,7 +88,7 @@ function MonthlyReportCard() {
           </span>
           <div>
             <h2 className="text-[15px] font-semibold">Informe mensual para gerencia</h2>
-            <p className="mt-0.5 text-xs text-muted">Excel listo para enviar: resumen, gasto por sucursal y tipo, vehículos que más gastan, OT abiertas y mantenciones.</p>
+            <p className="mt-0.5 text-xs text-muted">Excel listo para enviar: resumen con gráficos, gasto por sucursal y tipo, vehículos que más gastan, OT abiertas y mantenciones.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -95,9 +99,7 @@ function MonthlyReportCard() {
             onClick={async () => {
               setBusy(true)
               try {
-                const { downloadMonthlyReport } = await import('@/lib/monthlyReport')
-                await downloadMonthlyReport(report)
-                toast.success(`Informe de ${monthLong(month)} descargado`)
+                await exportMonthly(report, monthLong(month))
               } finally {
                 setBusy(false)
               }
@@ -180,9 +182,10 @@ export default function Reports() {
   )
 
   const suffix = `${from}_a_${to}`
+  const period = `período del ${date(from)} al ${date(to)}`
   return (
     <>
-      <PageHeader title="Reportes" description="Informe mensual en Excel e informes descargables en CSV" />
+      <PageHeader title="Reportes" description="Informe mensual e informes descargables en Excel, con resumen y gráficos" />
       <MonthlyReportCard />
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-end gap-3">
@@ -217,58 +220,65 @@ export default function Reports() {
           icon={Gauge}
           title="Ocupación y disponibilidad por sucursal"
           description="Situación actual de la flota"
-          filename={`west-ocupacion-${iso(TODAY)}.csv`}
+          filename={`west-ocupacion-${iso(TODAY)}.xlsx`}
           rows={availability}
+          chart={{ title: 'Disponibilidad por sucursal', label: 'branch', value: 'availability', fmt: 'pct' }}
           columns={[
             { label: 'Sucursal', value: 'branch' },
-            { label: 'Vehículos', value: 'total', right: true },
-            { label: 'Arrendados', value: 'rented', right: true, preview: false },
-            { label: 'En taller', value: 'down', right: true },
-            { label: 'Ocupación', value: 'occupancy', right: true, format: (v) => pct(v), csv: (r) => pct(r.occupancy) },
-            { label: 'Disponibilidad', value: 'availability', right: true, format: (v) => pct(v), csv: (r) => pct(r.availability) },
+            { label: 'Vehículos', value: 'total', right: true, xfmt: 'int', total: 'sum' },
+            { label: 'Arrendados', value: 'rented', right: true, preview: false, xfmt: 'int', total: 'sum' },
+            { label: 'En taller', value: 'down', right: true, xfmt: 'int', total: 'sum' },
+            { label: 'Ocupación', value: 'occupancy', right: true, format: (v) => pct(v), xfmt: 'pct' },
+            { label: 'Disponibilidad', value: 'availability', right: true, format: (v) => pct(v), xfmt: 'pct', scale: 'good-high' },
           ]}
         />
         <ReportCard
           icon={Receipt}
           title="Gasto por sucursal y categoría"
           description="OT cerradas en el período"
-          filename={`west-gasto-sucursal-categoria-${suffix}.csv`}
+          filename={`west-gasto-sucursal-categoria-${suffix}.xlsx`}
           rows={spend}
           delay={0.04}
+          period={period}
+          chart={{ title: 'Combinaciones sucursal y categoría con más gasto', label: (r) => `${r.branch} · ${r.category}`, value: 'total', fmt: 'clpM' }}
           columns={[
             { label: 'Sucursal', value: 'branch' },
             { label: 'Categoría', value: 'category' },
-            { label: 'OT', value: 'ots', right: true, preview: false },
-            { label: 'Correctivo', value: 'corrective', right: true, format: clp, preview: false },
-            { label: 'Total', value: 'total', right: true, format: clp },
+            { label: 'OT', value: 'ots', right: true, preview: false, xfmt: 'int', total: 'sum' },
+            { label: 'Correctivo', value: 'corrective', right: true, format: clp, preview: false, xfmt: 'clp', total: 'sum' },
+            { label: 'Total', value: 'total', right: true, format: clp, xfmt: 'clp', total: 'sum', bar: true },
           ]}
         />
         <ReportCard
           icon={Clock}
           title="Días promedio en taller"
           description="Por tipo de intervención · OT cerradas en el período"
-          filename={`west-dias-taller-${suffix}.csv`}
+          filename={`west-dias-taller-${suffix}.xlsx`}
           rows={workshopDays}
           delay={0.08}
+          period={period}
+          chart={{ title: 'Días promedio en taller por tipo de intervención', label: 'type', value: 'avg', fmt: 'dec1' }}
           columns={[
             { label: 'Tipo de intervención', value: 'type' },
-            { label: 'OT', value: 'ots', right: true },
-            { label: 'Días promedio', value: 'avg', right: true, format: (v) => v.toFixed(1).replace('.', ','), csv: (r) => r.avg.toFixed(1).replace('.', ',') },
+            { label: 'OT', value: 'ots', right: true, xfmt: 'int', total: 'sum' },
+            { label: 'Días promedio', value: 'avg', right: true, format: (v) => v.toFixed(1).replace('.', ','), xfmt: 'dec1', scale: 'bad-high' },
           ]}
         />
         <ReportCard
           icon={TrendingUp}
           title="Costo de mantención por vehículo"
           description="Costo en el período y costo histórico por kilómetro"
-          filename={`west-costo-vehiculo-${suffix}.csv`}
+          filename={`west-costo-vehiculo-${suffix}.xlsx`}
           rows={perVehicle}
           delay={0.12}
+          period={period}
+          chart={{ title: 'Vehículos con mayor costo por km', label: (r) => `${r.plate} · ${r.model}`, value: 'cpk', fmt: 'dec1' }}
           columns={[
             { label: 'Patente', value: 'plate' },
             { label: 'Modelo', value: 'model', preview: false },
             { label: 'Sucursal', value: 'branch' },
-            { label: 'Costo período', value: 'cost', right: true, format: clp },
-            { label: '$/km histórico', value: 'cpk', right: true, format: (v) => `$${v.toFixed(1).replace('.', ',')}`, csv: (r) => r.cpk.toFixed(1).replace('.', ',') },
+            { label: 'Costo período', value: 'cost', right: true, format: clp, xfmt: 'clp', total: 'sum', bar: true },
+            { label: '$/km histórico', value: 'cpk', right: true, format: (v) => `$${v.toFixed(1).replace('.', ',')}`, xfmt: 'dec1', scale: 'bad-high' },
           ]}
         />
       </div>

@@ -11,7 +11,8 @@ import { Select } from '@/components/ui/Field'
 import { DataTable } from '@/components/ui/DataTable'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { PageHeader, Segmented } from '@/components/ui/misc'
-import { clp, cx, date, downloadCSV, km, monthLong, num, pct } from '@/lib/format'
+import { clp, cx, date, km, monthLong, num, pct } from '@/lib/format'
+import { exportCostRanking, exportMaintenance, exportOpenOrders } from '@/lib/excel/exports'
 
 const TABS = [
   { value: 'ot', label: 'OT estancadas', icon: AlarmClock },
@@ -55,19 +56,10 @@ function StalledTab({ rows, minDays, setMinDays }) {
               size="sm"
               disabled={!rows.length}
               onClick={() =>
-                downloadCSV(`OT_estancadas_${minDays}d_${iso(TODAY)}.csv`, rows, [
-                  { label: 'OT', value: 'workOrder' },
-                  { label: 'Patente', value: 'plate' },
-                  { label: 'Vehículo', value: 'vehicle' },
-                  { label: 'Sucursal', value: 'branch' },
-                  { label: 'Días en taller', value: 'daysOpen' },
-                  { label: 'Responsable', value: (o) => `${o.owner}${o.ownerSuggested ? ' (sugerido)' : ''}` },
-                  { label: 'Estado real', value: (o) => o.management.realStatus },
-                  { label: 'Motivo', value: 'reason' },
-                ])
+                exportOpenOrders(rows, { title: `OT estancadas · más de ${minDays} días`, filters: 'responsable: el registrado o el sugerido de la sucursal', filename: `WEST_IA_ot_estancadas_${minDays}d_${iso(TODAY)}.xlsx` })
               }
             >
-              <Download size={14} /> CSV
+              <Download size={14} /> Excel
             </Button>
           </div>
         }
@@ -154,23 +146,10 @@ function MaintenanceTab({ rows }) {
               size="sm"
               disabled={!shown.length}
               onClick={() =>
-                downloadCSV(`Mantenciones_${view === 'soon' ? 'proximas' : 'vencidas'}_${iso(TODAY)}.csv`, shown, [
-                  { label: 'Patente', value: 'plate' },
-                  { label: 'Marca', value: 'brand' },
-                  { label: 'Modelo', value: 'model' },
-                  { label: 'Sucursal', value: 'branch' },
-                  { label: 'Cliente', value: 'client' },
-                  { label: 'Km registrado (última OT)', value: 'mileage' },
-                  { label: 'Km estimado hoy', value: (v) => v.estMileage ?? '' },
-                  { label: 'Km por día', value: (v) => (v.kmPerDay ? Math.round(v.kmPerDay) : '') },
-                  { label: 'Próxima mantención (km)', value: 'nextMaintenanceKm' },
-                  { label: 'Fecha estimada', value: (v) => v.estDueDate ?? '' },
-                  { label: 'Días restantes (negativo = vencida)', value: (v) => v.estDaysToMaintenance ?? '' },
-                  { label: 'Km restantes según km registrado', value: 'kmToMaintenance' },
-                ])
+                exportMaintenance(shown, { view })
               }
             >
-              <Download size={14} /> CSV
+              <Download size={14} /> Excel
             </Button>
           </div>
         }
@@ -223,26 +202,10 @@ function CostTab({ rows, period }) {
               size="sm"
               disabled={!shown.length}
               onClick={() =>
-                downloadCSV(`Gasto_por_vehiculo_${iso(TODAY)}.csv`, shown, [
-                  { label: 'Patente', value: 'plate' },
-                  { label: 'Vehículo', value: 'vehicle' },
-                  { label: 'Año', value: 'year' },
-                  { label: 'Categoría', value: 'category' },
-                  { label: 'Sucursal', value: 'branch' },
-                  { label: 'Km', value: 'mileage' },
-                  { label: 'OT', value: 'orders' },
-                  { label: 'Preventivo', value: 'preventive' },
-                  { label: 'Correctivo', value: 'corrective' },
-                  { label: 'Siniestros / DYP', value: 'accident' },
-                  { label: 'Gasto (sin preparación)', value: 'spend' },
-                  { label: 'Preparación / equipamiento', value: 'preparation' },
-                  { label: 'Total', value: 'total' },
-                  { label: 'Veces el promedio de su categoría', value: (r) => r.ratio.toFixed(1) },
-                  { label: 'Sugerencia', value: (r) => ADVICE[r.advice]?.label ?? '' },
-                ])
+                exportCostRanking(shown, { period })
               }
             >
-              <Download size={14} /> CSV
+              <Download size={14} /> Excel
             </Button>
           </div>
         }
