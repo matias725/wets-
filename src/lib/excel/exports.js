@@ -44,7 +44,7 @@ const detail = (name, title, columns, rows, extra = {}) => ({ name, kind: 'table
 // ------------------------------------------------------------------ gastos
 export function exportExpenses(rows, { year, filters } = {}) {
   const total = sum(rows, (r) => r.total)
-  const m = byMonth(rows, (r) => r.date, [(r) => r.preventive, (r) => r.corrective, (r) => r.charge])
+  const m = byMonth(rows, (r) => r.date, [(r) => r.preventive, (r) => r.corrective, (r) => r.tires ?? 0, (r) => r.equipment ?? 0, (r) => r.charge])
   const types = groupBy(rows, (r) => r.interventionType, (r) => r.total, { top: 7 })
   const branches = groupBy(rows, (r) => r.branch, (r) => r.total, { top: 10, others: false })
   const clients = groupBy(rows, (r) => r.client, (r) => r.total, { top: 10, others: false })
@@ -64,7 +64,13 @@ export function exportExpenses(rows, { year, filters } = {}) {
         charts: [
           {
             type: 'bar', title: 'Gasto mensual', wide: true, stacked: true, fmt: 'clpM', categories: m.labels,
-            series: [{ name: 'Preventivo', values: m.values[0], color: '22C55E' }, { name: 'Correctivo', values: m.values[1], color: 'FFC400' }, { name: 'A cobro', values: m.values[2], color: '3B82F6' }],
+            series: [
+              { name: 'Preventivo', values: m.values[0], color: '22C55E' },
+              { name: 'Correctivo', values: m.values[1], color: 'FFC400' },
+              { name: 'Neumáticos', values: m.values[2], color: 'F97316' },
+              { name: 'Equipamiento', values: m.values[3], color: '2A2723' },
+              { name: 'A cobro', values: m.values[4], color: '3B82F6' },
+            ],
           },
           { type: 'doughnut', title: 'Gasto por tipo de intervención', fmt: 'clp', categories: cats(types), series: [series('Gasto', types)] },
           { type: 'barH', title: 'Gasto por sucursal', fmt: 'clpM', labels: true, categories: cats(branches), series: [series('Gasto', branches)] },
@@ -83,6 +89,8 @@ export function exportExpenses(rows, { year, filters } = {}) {
         { header: 'Motivo', value: 'reason', wrap: true, width: 48 },
         { header: 'Correctivo', value: 'corrective', fmt: 'clp', total: 'sum' },
         { header: 'Preventivo', value: 'preventive', fmt: 'clp', total: 'sum' },
+        { header: 'Neumáticos', value: (r) => r.tires ?? 0, fmt: 'clp', total: 'sum' },
+        { header: 'Equipamiento', value: (r) => r.equipment ?? 0, fmt: 'clp', total: 'sum' },
         { header: 'A cobro', value: 'charge', fmt: 'clp', total: 'sum' },
         { header: 'Total', value: 'total', fmt: 'clp', total: 'sum', bar: true, bold: true },
         { header: 'Recuperabilidad', value: 'recovery' },
@@ -266,6 +274,8 @@ export function exportCostRanking(rows, { period } = {}) {
             series: [
               { name: 'Preventivo', values: top.map((r) => r.preventive), color: '22C55E' },
               { name: 'Correctivo', values: top.map((r) => r.corrective), color: 'FFC400' },
+              { name: 'Neumáticos', values: top.map((r) => r.tires ?? 0), color: 'F97316' },
+              { name: 'Equipamiento', values: top.map((r) => r.equipment ?? 0), color: '2A2723' },
               { name: 'Siniestros / DYP', values: top.map((r) => r.accident), color: 'EF4444' },
             ],
           },
@@ -281,6 +291,8 @@ export function exportCostRanking(rows, { period } = {}) {
         { header: 'OT', value: 'orders', fmt: 'int', total: 'sum' },
         { header: 'Preventivo', value: 'preventive', fmt: 'clp', total: 'sum' },
         { header: 'Correctivo', value: 'corrective', fmt: 'clp', total: 'sum' },
+        { header: 'Neumáticos', value: (r) => r.tires ?? 0, fmt: 'clp', total: 'sum' },
+        { header: 'Equipamiento', value: (r) => r.equipment ?? 0, fmt: 'clp', total: 'sum' },
         { header: 'Siniestros / DYP', value: 'accident', fmt: 'clp', total: 'sum' },
         { header: 'Gasto (sin preparación)', value: 'spend', fmt: 'clp', total: 'sum', bar: true, bold: true },
         { header: 'Preparación', value: 'preparation', fmt: 'clp', total: 'sum' },

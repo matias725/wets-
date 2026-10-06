@@ -4,7 +4,7 @@ import { REAL } from './realData'
 
 const expandLines = (o) => ({
   ...o,
-  lines: o.lines.map(([code, description, qty, unitCost, total, prev]) => ({ code, description, qty, unitCost, total, prev: Boolean(prev) })),
+  lines: o.lines.map(([code, description, qty, unitCost, total, prev, cls]) => ({ code, description, qty, unitCost, total, prev: Boolean(prev), cls: cls || '' })),
 })
 
 export const { TODAY, iso, addDays } = demo
@@ -15,3 +15,5 @@ export const MANAGEMENT = REAL ? {} : demo.MANAGEMENT
 export const VISITS = REAL ? [] : demo.VISITS
 export const STALLED_WITHOUT_OT = REAL ? [] : demo.STALLED_WITHOUT_OT
 export const RESPONSIBLES_BY_BRANCH = REAL?.responsibles ?? null
+// gestión y fotos del Excel editable de OT abiertas (carpeta del SAP)
+export const GESTION = REAL ? (globalThis.__WEST_GESTION__ ?? null) : null

@@ -111,6 +111,10 @@ function otRow(o, v) {
   }
 }
 
+// clase de la línea según el catálogo de repuestos de West (o la regla anterior si el código no está)
+const CLASS_LABEL = { P: 'Preventivo', C: 'Correctivo', N: 'Neumáticos', E: 'Equipamiento' }
+const lineClass = (l) => CLASS_LABEL[l.cls] ?? (isPreventiveLine(l) ? 'Preventivo' : 'Correctivo')
+
 const sortBy = (list, key) => list.sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))
 const limitOf = (input, def = 25, max = 200) => Math.min(Math.max(1, Number(input.limite) || def), max)
 
@@ -157,7 +161,7 @@ export const TOOLS = [
       properties: {
         ...OT_FILTERS,
         texto_linea: { type: 'string', description: 'Filtra solo las líneas cuya descripción o código contiene este texto (p. ej. "pastilla", "embrague")' },
-        tipo_linea: { type: 'string', enum: ['todas', 'preventivas', 'correctivas'] },
+        tipo_linea: { type: 'string', enum: ['todas', 'preventivas', 'correctivas', 'neumaticos', 'equipamiento'], description: 'Clase según el catálogo de repuestos de West' },
         agrupar_por: { type: 'string', enum: ['descripcion', 'codigo', 'patente', 'modelo', 'sucursal', 'mes', 'ninguno'] },
         orden: { type: 'string', enum: ['costo', 'cantidad'] },
         limite: { type: 'integer' },
@@ -216,7 +220,7 @@ export const TOOLS = [
   {
     name: 'analisis_avanzado',
     description: `Ejecuta JavaScript sobre todos los datos cuando las otras herramientas no alcanzan (cruces, estadísticas, correlaciones, series a medida). El código es el cuerpo de una función que recibe:
-- ot: arreglo de OT { ot, patente, sucursal, cliente, area, ingreso, cierre, estado_sap, abierta, tipo, preparacion, motivo, km, costo, creado_por, lineas: [{ codigo, descripcion, cantidad, costo_unitario, total, preventiva }] }
+- ot: arreglo de OT { ot, patente, sucursal, cliente, area, ingreso, cierre, estado_sap, abierta, tipo, preparacion, motivo, km, costo, creado_por, lineas: [{ codigo, descripcion, cantidad, costo_unitario, total, clase ('Preventivo'|'Correctivo'|'Neumáticos'|'Equipamiento') }] }
 - vehiculos: arreglo { patente, marca, modelo, categoria, anio, combustible, sucursal, estado, cliente, area, km, km_estimado_hoy, km_por_dia, proxima_mantencion_km, dias_para_mantencion }
 - hoy: 'AAAA-MM-DD'
 Debe terminar con "return <resultado>" (objeto o arreglo serializable, idealmente pequeño y ya resumido). Sin acceso a red ni a la página. Límite: 15 segundos.`,
@@ -303,9 +307,11 @@ function consultarRepuestos(input) {
     const v = vIndex.get(o.plate)
     for (const l of o.lines) {
       if (input.texto_linea && !has(l.description, input.texto_linea) && !has(l.code, input.texto_linea)) continue
-      const prev = isPreventiveLine(l)
-      if (input.tipo_linea === 'preventivas' && !prev) continue
-      if (input.tipo_linea === 'correctivas' && prev) continue
+      const cls = lineClass(l)
+      if (input.tipo_linea === 'preventivas' && cls !== 'Preventivo') continue
+      if (input.tipo_linea === 'correctivas' && cls !== 'Correctivo') continue
+      if (input.tipo_linea === 'neumaticos' && cls !== 'Neumáticos') continue
+      if (input.tipo_linea === 'equipamiento' && cls !== 'Equipamiento') continue
       const k =
         by === 'descripcion' ? l.description || l.code
         : by === 'codigo' ? l.code
@@ -315,7 +321,7 @@ function consultarRepuestos(input) {
         : by === 'mes' ? o.receivedDate?.slice(0, 7) || 'Sin fecha'
         : 'Total'
       let g = groups.get(k)
-      if (!g) groups.set(k, (g = { grupo: k, codigo: by === 'descripcion' ? l.code : undefined, cantidad: 0, total: 0, ots: new Set(), plates: new Set() }))
+      if (!g) groups.set(k, (g = { grupo: k, codigo: by === 'descripcion' ? l.code : undefined, clase: by === 'descripcion' || by === 'codigo' ? cls : undefined, cantidad: 0, total: 0, ots: new Set(), plates: new Set() }))
       g.cantidad += l.qty || 0
       g.total += l.total || 0
       g.ots.add(o.workOrder)
@@ -327,6 +333,7 @@ function consultarRepuestos(input) {
   const rows = [...groups.values()].map((g) => ({
     grupo: g.grupo,
     codigo: g.codigo,
+    clase: g.clase,
     cantidad: Math.round(g.cantidad * 100) / 100,
     total: round(g.total),
     costo_unitario_promedio: g.cantidad ? round(g.total / g.cantidad) : null,
@@ -377,7 +384,7 @@ function detalleVehiculo({ patente }) {
   }
 }
 
-const lineRow = (l) => ({ codigo: l.code, descripcion: l.description, cantidad: l.qty, total: round(l.total), preventiva: isPreventiveLine(l) })
+const lineRow = (l) => ({ codigo: l.code, descripcion: l.description, cantidad: l.qty, total: round(l.total), clase: lineClass(l) })
 
 function consultarFlota(input) {
   const branch = input.sucursal ? findBranch(input.sucursal) : null
@@ -499,6 +506,8 @@ function rankingGasto(input) {
       gasto: round(r.spend),
       preventivo: round(r.preventive),
       correctivo: round(r.corrective),
+      neumaticos: round(r.tires),
+      equipamiento: round(r.equipment),
       siniestros: round(r.accident),
       preparacion: round(r.preparation),
       veces_promedio_categoria: Math.round(r.ratio * 10) / 10,
@@ -562,7 +571,7 @@ function analysisData() {
       km: o.mileage || null,
       costo: o.totalCost,
       creado_por: o.createdBy,
-      lineas: o.lines.map((l) => ({ codigo: l.code, descripcion: l.description, cantidad: l.qty, costo_unitario: l.unitCost, total: l.total, preventiva: isPreventiveLine(l) })),
+      lineas: o.lines.map((l) => ({ codigo: l.code, descripcion: l.description, cantidad: l.qty, costo_unitario: l.unitCost, total: l.total, clase: lineClass(l) })),
     })),
     vehiculos: [...vIndex.values()].map((v) => ({
       patente: v.plate,
@@ -699,6 +708,8 @@ Conceptos de los datos:
 - Costos en pesos chilenos (CLP), suma de las líneas de la OT tal como vienen del SAP.
 - Tipos de intervención: Correctiva, Preventiva, Preventiva + Correctiva, DYP (desabolladura y pintura), Compañía de seguros, Revisión técnica, Lavado, Equipamiento unidades nuevas, Otros.
 - Las OT de preparación o equipamiento para clientes y faenas NO son fallas: el SAP a veces las marca como correctivas. Exclúyelas (excluir_preparacion) al analizar fallas o gasto de mantención, y menciónalo.
+- Cada línea de OT (repuesto o mano de obra) tiene una clase del catálogo de repuestos de West: Preventivo, Correctivo, Neumáticos o Equipamiento. Neumáticos y equipamiento se informan aparte del correctivo.
+- La gestión de las OT abiertas (estado real, responsable, compromiso, observación) viene del Excel editable de WEST IA y de lo que se registre en la app.
 - Mantención preventiva cada 10.000 km. El km del maestro es el de la última OT; el km de hoy se estima con el ritmo de uso.
 - Vehículos vendidos (USADOS) y pérdida total no son flota operativa.
 

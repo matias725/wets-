@@ -3,6 +3,7 @@
 // se ejecuta en el navegador: el archivo nunca sale del computador.
 // Sin imports con "@/" para poder probarlo también fuera del navegador.
 import { readXlsx } from './xlsxReader.js'
+import { partKey } from './sapExtras.js'
 
 // Coordenadas aproximadas por sucursal / faena: [nombre, lat, lng, zona]
 const PLACES = {
@@ -122,7 +123,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
  * sheets: hojas leídas con readXlsx ([{ name, rows }]). catalog: códigos preventivos (mayúsculas).
  * onProgress(texto, fracción 0..1). Devuelve el mismo objeto que el script de Python.
  */
-export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog = [], onProgress = () => {} } = {}) {
+export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog = [], parts = {}, onProgress = () => {} } = {}) {
   const cat = new Set(catalog)
 
   // ------------------------------------------------------------ líneas de OT
@@ -141,6 +142,12 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
   const col = (r, name) => (name in H ? (r[H[name]] ?? null) : null)
   const descKey = ['descripcion articulo/serv.', 'descripcion articulo/serv', 'descripcion'].find((k) => k in H) ?? Object.keys(H).find((k) => k.startsWith('descripci'))
 
+  // clase de cada línea: el catálogo de repuestos manda (P preventivo, C correctivo,
+  // N neumáticos, E equipamiento); si el código no está, la regla anterior
+  const lineClass = (code, desc) => {
+    const c = parts[partKey(code)]?.c ?? ''
+    return { cls: c, prev: c ? c === 'P' : cat.size ? cat.has(code.toUpperCase()) : /filtro|aceite|mantenc|pauta/.test(norm(desc)) }
+  }
   const orders = new Map()
   const total = otWs.rows.length
   for (let i = hdr.row + 1; i < total; i++) {
@@ -183,7 +190,7 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
       unitCost: Math.round(num(col(r, 'costo unitario'))),
       total: Math.round(num(col(r, 'costo total'))),
       group: text(col(r, 'grupo')),
-      prev: cat.size ? cat.has(code.toUpperCase()) : /filtro|aceite|mantenc|pauta/.test(norm(desc)),
+      ...lineClass(code, desc),
     })
   }
   if (!orders.size) throw new Error('La hoja de OT no tiene filas con número de OT.')
@@ -215,7 +222,7 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
       const c = (responsibles[o.branchId] ??= {})
       c[o.createdBy] = (c[o.createdBy] ?? 0) + 1
     }
-    o.lines = o.lines.map((l) => [l.code, l.description, l.qty, l.unitCost, l.total, l.prev ? 1 : 0])
+    o.lines = o.lines.map((l) => [l.code, l.description, l.qty, l.unitCost, l.total, l.prev ? 1 : 0, l.cls])
     workOrders.push(o)
   })
   workOrders.sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : a.receivedDate > b.receivedDate ? 1 : 0))

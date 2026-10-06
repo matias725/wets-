@@ -35,6 +35,7 @@ export function DataUpdateBanner() {
   if (!status) return null
   const loaded = META.generatedAt ?? ''
   const isNewer = status.ok && status.generatedAt && status.generatedAt > loaded
+  const newGestion = !isNewer && status.gestion?.processedAt && status.gestion.processedAt > (globalThis.__WEST_GESTION__?.processedAt ?? '')
 
   if (status.error && status.errorAt > loaded && status.errorAt !== dismissedError) {
     return (
@@ -46,6 +47,21 @@ export function DataUpdateBanner() {
           </span>
         </span>
         <Button variant="ghost" size="sm" onClick={() => setDismissedError(status.errorAt)}>Entendido</Button>
+      </div>
+    )
+  }
+  if (newGestion) {
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/40 bg-brand/12 px-4 py-3 text-sm">
+        <span className="flex items-center gap-2">
+          <Database size={18} className="shrink-0 text-brand-text" />
+          <span>
+            Llegó gestión actualizada de OT abiertas: <b>{status.gestion.file}</b> · {num(status.gestion.items)} OT con gestión · {num(status.gestion.photos)} fotos
+          </span>
+        </span>
+        <Button variant="primary" size="sm" onClick={() => window.location.reload()}>
+          <RefreshCw size={14} /> Actualizar ahora
+        </Button>
       </div>
     )
   }

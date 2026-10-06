@@ -147,6 +147,8 @@ export const KANBAN_COLUMNS = [
 export const EXPENSE_CATEGORIES = [
   { id: 'Correctivo', color: '#3b82f6' },
   { id: 'Preventivo', color: '#64748b' },
+  { id: 'Neumáticos', color: '#f97316' },
+  { id: 'Equipamiento', color: '#eab308' },
   { id: 'A cobro', color: '#22c55e' },
 ]
 export const RECOVERY_STATUS = ['Por revisar', 'No recuperable', 'A cobro']

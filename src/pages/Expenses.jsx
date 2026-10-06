@@ -66,6 +66,8 @@ export default function Expenses() {
       total: sum((r) => r.total),
       corrective: sum((r) => r.corrective),
       preventive: sum((r) => r.preventive),
+      tires: sum((r) => r.tires ?? 0),
+      equipment: sum((r) => r.equipment ?? 0),
       charge: sum((r) => r.charge),
       rac: sum((r) => (r.area === 'RAC' ? r.total : 0)),
       lop: sum((r) => (r.area === 'LOP' ? r.total : 0)),
@@ -83,6 +85,8 @@ export default function Expenses() {
           month: m,
           Correctivo: list.reduce((s, r) => s + r.corrective, 0),
           Preventivo: list.reduce((s, r) => s + r.preventive, 0),
+          Neumáticos: list.reduce((s, r) => s + (r.tires ?? 0), 0),
+          Equipamiento: list.reduce((s, r) => s + (r.equipment ?? 0), 0),
           'A cobro': list.reduce((s, r) => s + r.charge, 0),
         }
       }),
@@ -175,10 +179,12 @@ export default function Expenses() {
         </div>
       </Card>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Gasto total" value={totals.total} format={clpShort} hint={`${rows.length} OT · ${year}`} icon={CircleDollarSign} color="#ffc400" />
         <KpiCard label="Correctivo" value={totals.corrective} format={clpShort} hint={totals.total ? `${pct(totals.corrective / totals.total)} del gasto` : '—'} icon={Wrench} color="#3b82f6" delay={0.04} />
         <KpiCard label="Preventivo" value={totals.preventive} format={clpShort} hint={totals.total ? `${pct(totals.preventive / totals.total)} del gasto` : '—'} icon={ShieldCheck} color="#94a3b8" delay={0.08} />
+        <KpiCard label="Neumáticos" value={totals.tires} format={clpShort} hint={totals.total ? `${pct(totals.tires / totals.total)} del gasto` : '—'} icon={CircleDollarSign} color="#f97316" delay={0.1} />
+        <KpiCard label="Equipamiento" value={totals.equipment} format={clpShort} hint="Preparación de unidades · no es falla" icon={CircleDollarSign} color="#eab308" delay={0.11} />
         <KpiCard label="A cobro" value={totals.charge} format={clpShort} hint={`${totals.pending} OT por revisar`} icon={HandCoins} color="#22c55e" delay={0.12} onClick={() => setRecoveryFilter(recovery === 'Por revisar' ? 'all' : 'Por revisar')} active={recovery === 'Por revisar'} />
         <KpiCard label="RAC" value={totals.rac} format={clpShort} hint="Arriendo diario" icon={Truck} color="#38bdf8" delay={0.16} onClick={() => setArea(area === 'RAC' ? 'all' : 'RAC')} active={area === 'RAC'} />
         <KpiCard label="LOP" value={totals.lop} format={clpShort} hint="Leasing operativo" icon={Building} color="#a78bfa" delay={0.2} onClick={() => setArea(area === 'LOP' ? 'all' : 'LOP')} active={area === 'LOP'} />
@@ -186,7 +192,7 @@ export default function Expenses() {
 
       <div className="mt-4 grid items-start gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2" delay={0.1}>
-          <CardHeader title={`Evolución mensual ${year}`} subtitle="Correctivo, preventivo y a cobro" />
+          <CardHeader title={`Evolución mensual ${year}`} subtitle="Correctivo, preventivo, neumáticos, equipamiento y a cobro · clasificación por catálogo de repuestos" />
           <div className="h-[420px] px-2 pb-4">
             <ResponsiveContainer>
               <BarChart data={monthly} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} barCategoryGap="22%">

@@ -5,7 +5,7 @@ import { BRANCHES, BRANCH_BY_ID, ALL_BRANCHES } from './branches'
 import { ACTIVE_SAP_STATUS, CATEGORY_BY_ID, KANBAN_COLUMNS, VEHICLE_STATUS } from './catalog'
 import { COMPANIES, PERSONS, RESPONSIBLES, FALLBACK_RESPONSIBLE } from './people'
 import {
-  META, MANAGEMENT, RESPONSIBLES_BY_BRANCH, STALLED_WITHOUT_OT, TODAY, VEHICLES as BASE_VEHICLES, VISITS, WORK_ORDERS, addDays, iso,
+  GESTION, META, MANAGEMENT, RESPONSIBLES_BY_BRANCH, STALLED_WITHOUT_OT, TODAY, VEHICLES as BASE_VEHICLES, VISITS, WORK_ORDERS, addDays, iso,
 } from './dataset'
 
 export { TODAY, iso, addDays, META }
@@ -31,6 +31,20 @@ try {
 } catch {
   /* almacenamiento no disponible: se trabaja solo en memoria */
 }
+
+// Gestión del Excel editable de OT abiertas: se usa salvo que en esta página se
+// haya guardado una gestión más nueva que la fecha de corte del Excel.
+if (GESTION?.items) {
+  const cut = (GESTION.cut || GESTION.processedAt || '').slice(0, 10)
+  for (const [ot, item] of Object.entries(GESTION.items)) {
+    const local = state.management[ot]
+    if (local?.updatedAt && local.updatedAt >= cut) continue
+    const { photos: _photos, ...fields } = item
+    if (Object.keys(fields).length) state.management[ot] = { ...local, ...fields, updatedAt: cut, source: 'Excel editable' }
+  }
+}
+export const gestionInfo = () => (GESTION ? { file: GESTION.file, cut: GESTION.cut, processedAt: GESTION.processedAt } : null)
+export const photosOf = (workOrder) => (GESTION?.items?.[workOrder]?.photos ?? []).map((f) => `/data/fotos/${f}`)
 
 // ------------------------------------------------------------------ flota
 // La flota parte con los datos de demostración y puede reemplazarse por una
@@ -260,6 +274,7 @@ export function getOpenWorkOrders(branchId = ALL_BRANCHES) {
       return {
         ...e,
         management: m,
+        photos: photosOf(o.workOrder),
         flags: flagsFor(e, m),
         vehicle: v ? `${v.brand} ${v.model}` : '',
         category: v?.category,
@@ -274,6 +289,7 @@ export function saveManagement(workOrder, patch) {
     ...EMPTY_MANAGEMENT,
     ...(state.management[workOrder] || {}),
     ...patch,
+    source: 'WEST IA web',
     updatedAt: iso(new Date()),
   }
   commit()
@@ -290,12 +306,21 @@ export function getExpenseRows(branchId = ALL_BRANCHES) {
       const recovery = state.recovery[o.workOrder] ?? o.recovery
       let preventive = 0
       let corrective = 0
-      // SAP: cada línea trae si es preventiva (catálogo West); demo: por código.
-      o.lines.forEach((l) => ((l.prev ?? PREVENTIVE_CODES.test(l.code)) ? (preventive += l.total) : (corrective += l.total)))
+      let tires = 0
+      let equipment = 0
+      // SAP: cada línea trae su clase del catálogo de repuestos (o si es preventiva); demo: por código.
+      o.lines.forEach((l) => {
+        if (l.cls === 'N') tires += l.total
+        else if (l.cls === 'E') equipment += l.total
+        else if (l.prev ?? PREVENTIVE_CODES.test(l.code)) preventive += l.total
+        else corrective += l.total
+      })
       const charge = recovery === 'A cobro' ? o.totalCost : 0
       if (charge) {
         preventive = 0
         corrective = 0
+        tires = 0
+        equipment = 0
       }
       const v = vehicleByPlate(o.plate)
       return {
@@ -313,6 +338,8 @@ export function getExpenseRows(branchId = ALL_BRANCHES) {
         total: o.totalCost,
         preventive,
         corrective,
+        tires,
+        equipment,
         charge,
         recovery,
       }
@@ -472,7 +499,7 @@ export function getCostRanking(branchId = ALL_BRANCHES, { from, to } = {}) {
     const v = vehicleByPlate(o.plate)
     if (!v || v.status === 'sold' || v.status === 'out') continue
     let r = map.get(o.plate)
-    if (!r) map.set(o.plate, (r = { plate: o.plate, v, orders: 0, correctiveOrders: 0, total: 0, preventive: 0, corrective: 0, accident: 0, preparation: 0, spend: 0 }))
+    if (!r) map.set(o.plate, (r = { plate: o.plate, v, orders: 0, correctiveOrders: 0, total: 0, preventive: 0, corrective: 0, tires: 0, equipment: 0, accident: 0, preparation: 0, spend: 0 }))
     r.orders += 1
     r.total += o.totalCost
     if (isPreparation(o)) {
@@ -481,7 +508,13 @@ export function getCostRanking(branchId = ALL_BRANCHES, { from, to } = {}) {
     }
     r.spend += o.totalCost
     if (ACCIDENT_TYPES.has(o.interventionType)) r.accident += o.totalCost
-    else o.lines.forEach((l) => (isPreventiveLine(l) ? (r.preventive += l.total) : (r.corrective += l.total)))
+    else
+      o.lines.forEach((l) => {
+        if (l.cls === 'N') r.tires += l.total
+        else if (l.cls === 'E') r.equipment += l.total
+        else if (isPreventiveLine(l)) r.preventive += l.total
+        else r.corrective += l.total
+      })
     if (o.interventionType.includes('Correctiva')) r.correctiveOrders += 1
   }
   const all = [...map.values()]
@@ -528,7 +561,7 @@ export function getBranchComparison({ from, to } = {}) {
     const s = (spend[o.branchId] ??= { orders: 0, total: 0, corrective: 0 })
     s.orders += 1
     s.total += o.totalCost
-    if (!ACCIDENT_TYPES.has(o.interventionType)) o.lines.forEach((l) => !isPreventiveLine(l) && (s.corrective += l.total))
+    if (!ACCIDENT_TYPES.has(o.interventionType)) o.lines.forEach((l) => !isPreventiveLine(l) && !['N', 'E'].includes(l.cls) && (s.corrective += l.total))
   }
   return BRANCHES.map((b) => {
     const list = fleet.filter((v) => v.branchId === b.id && v.status !== 'sold')

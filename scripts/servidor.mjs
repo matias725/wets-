@@ -14,6 +14,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
 import { convertSapFile } from '../src/lib/sapImport.js'
+import { readXlsx } from '../src/lib/xlsxReader.js'
+import { detectKind, parseGestion, parsePartsCatalog } from '../src/lib/sapExtras.js'
+import { extractPhotos } from './fotos.mjs'
 import { createIaHandler } from './ia.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -60,69 +63,152 @@ async function writeJsonAtomic(file, data) {
 }
 
 // ------------------------------------------------------------------ vigilante
+// La carpeta puede tener varios Excel; cada uno se reconoce por su contenido:
+// - SAP COMPLETO (OT + maestro): el más reciente es la fuente de datos.
+// - Catálogos de repuestos (hojas Preventivo / Correctivo / Neumáticos /
+//   Equipamiento): se juntan todos; si un código se repite, gana el más nuevo.
+// - Excel editable de OT abiertas: gestión (estado real, responsable,
+//   compromiso, observación) y fotos; vale el más reciente.
 const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'data', 'preventiveCodes.json'), 'utf8'))
+const PHOTOS = path.join(DATA, 'fotos')
 let busy = false
-let lastSeen = { key: '', size: -1 }
+let lastFolderKey = ''
+const kinds = new Map() // clave de archivo → tipo, para no releerlo
 
-async function newestExcel() {
-  const names = await fsp.readdir(WATCH)
-  let best = null
-  for (const name of names) {
+async function listExcels() {
+  const out = []
+  for (const name of await fsp.readdir(WATCH)) {
     // ~$ = archivo temporal de Excel abierto
     if (!/\.xls[xm]$/i.test(name) || name.startsWith('~$')) continue
     const full = path.join(WATCH, name)
     const st = await fsp.stat(full).catch(() => null)
-    if (!st?.isFile()) continue
+    if (!st?.isFile() || !st.size) continue
     // al pegar, Windows conserva la fecha de modificación: la de creación es la del pegado
     const time = Math.max(st.mtimeMs, st.birthtimeMs || 0)
-    if (!best || time > best.time) best = { name, full, size: st.size, time, key: `${name}|${st.size}|${Math.round(time)}` }
+    out.push({ name, full, size: st.size, time, key: `${name}|${st.size}|${Math.round(time)}` })
   }
-  return best
+  return out.sort((a, b) => a.time - b.time)
+}
+
+async function readSheets(file) {
+  const buffer = await fsp.readFile(file.full)
+  return { buffer, sheets: await readXlsx(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)) }
+}
+
+async function kindOf(file) {
+  if (!kinds.has(file.key)) kinds.set(file.key, detectKind((await readSheets(file)).sheets) ?? 'otro')
+  return kinds.get(file.key)
+}
+
+async function processSap(file, parts, partsInfo) {
+  const buffer = await fsp.readFile(file.full)
+  const data = await convertSapFile(buffer, { fileName: file.name, catalog, parts })
+  data.meta.generatedAt = localStamp()
+  data.meta.loadedFrom = 'carpeta'
+  data.meta.partsCatalog = partsInfo
+  await writeJsonAtomic(path.join(DATA, 'west-real.json'), data)
+  return data
+}
+
+async function processGestion(file) {
+  const { buffer, sheets } = await readSheets(file)
+  const g = parseGestion(sheets) ?? { cut: '', items: {} }
+  const photos = extractPhotos(buffer, sheets)
+  await fsp.rm(PHOTOS, { recursive: true, force: true })
+  await fsp.mkdir(PHOTOS, { recursive: true })
+  const count = {}
+  for (const p of photos) {
+    const n = (count[p.workOrder] = (count[p.workOrder] ?? 0) + 1)
+    const name = `${p.workOrder.replace(/[^\w-]/g, '_')}_${n}.${p.ext === 'jpeg' ? 'jpg' : p.ext}`
+    await fsp.writeFile(path.join(PHOTOS, name), p.data)
+    const item = (g.items[p.workOrder] ??= {})
+    item.photos = [...(item.photos ?? []), name]
+  }
+  const out = { file: file.name, cut: g.cut, processedAt: localStamp(), items: g.items }
+  await writeJsonAtomic(path.join(DATA, 'gestion.json'), out)
+  return { file: file.name, cut: g.cut, processedAt: out.processedAt, items: Object.keys(g.items).length, photos: photos.length }
 }
 
 async function tickWatcher() {
   if (busy) return
   busy = true
+  let current = null
   try {
-    const file = await newestExcel()
-    if (!file || file.key === readState().sourceKey) return
-    // esperar a que termine de copiarse: mismo tamaño en dos revisiones seguidas
-    if (lastSeen.key !== file.key || lastSeen.size !== file.size || file.size === 0) {
-      lastSeen = { key: file.key, size: file.size }
+    const files = await listExcels()
+    const folderKey = files.map((f) => f.key).join('\n')
+    const state = readState()
+    if (folderKey === state.folderKey) return
+    // esperar a que terminen de copiarse: la carpeta igual en dos revisiones seguidas
+    if (folderKey !== lastFolderKey) {
+      lastFolderKey = folderKey
       return
     }
-    log(`Excel nuevo: ${file.name} (${(file.size / 1e6).toFixed(1)} MB). Procesando…`)
-    const t0 = Date.now()
-    try {
-      const buffer = await fsp.readFile(file.full)
-      const data = await convertSapFile(buffer, { fileName: file.name, catalog })
-      data.meta.generatedAt = localStamp()
-      data.meta.loadedFrom = 'carpeta'
-      await writeJsonAtomic(path.join(DATA, 'west-real.json'), data)
+    const byKind = { sap: [], repuestos: [], gestion: [], otro: [] }
+    for (const f of files) {
+      current = f
+      byKind[await kindOf(f)].push(f)
+    }
+    const sap = byKind.sap.at(-1)
+    const gestion = byKind.gestion.at(-1)
+    const partsKey = byKind.repuestos.map((f) => f.key).join('\n')
+    const next = { ...state, folderKey, ignored: byKind.otro.map((f) => f.name) }
+    delete next.error
+    delete next.errorFile
+    delete next.errorAt
+
+    // catálogo de repuestos (del más antiguo al más nuevo: el nuevo pisa)
+    const parts = {}
+    for (const f of byKind.repuestos) {
+      current = f
+      Object.assign(parts, parsePartsCatalog((await readSheets(f)).sheets))
+    }
+    const partsInfo = { files: byKind.repuestos.map((f) => f.name), codes: Object.keys(parts).length }
+
+    if (sap && (sap.key !== state.sourceKey || partsKey !== state.partsKey)) {
+      current = sap
+      log(`Procesando ${sap.name} (${(sap.size / 1e6).toFixed(1)} MB) con ${partsInfo.codes} códigos de repuestos clasificados…`)
+      const t0 = Date.now()
+      const data = await processSap(sap, parts, partsInfo)
       const openOT = data.workOrders.filter((o) => ['no iniciada', 'proceso'].includes(o.sapStatus.toLowerCase())).length
-      await writeJsonAtomic(STATE, {
+      Object.assign(next, {
         ok: true,
-        sourceKey: file.key,
-        fileName: file.name,
+        sourceKey: sap.key,
+        partsKey,
+        fileName: sap.name,
         generatedAt: data.meta.generatedAt,
         vehicles: data.meta.vehicles,
         workOrders: data.meta.workOrders,
         openOT,
         from: data.meta.from,
         to: data.meta.to,
+        parts: partsInfo,
       })
       log(`Listo en ${((Date.now() - t0) / 1000).toFixed(1)} s: ${data.meta.vehicles} vehículos, ${data.meta.workOrders} OT (${openOT} abiertas).`)
-    } catch (e) {
-      if (e?.code === 'EBUSY' || e?.code === 'EPERM') {
-        log(`${file.name} está ocupado (¿abierto en Excel?). Se reintenta.`)
-        return
-      }
-      log(`ERROR con ${file.name}: ${e?.message || e}`)
-      // se guarda el error para que la web lo muestre; los datos anteriores se mantienen
-      await writeJsonAtomic(STATE, { ...readState(), sourceKey: file.key, error: e?.message || String(e), errorFile: file.name, errorAt: localStamp() })
     }
+    if (gestion && gestion.key !== state.gestionKey) {
+      current = gestion
+      const info = await processGestion(gestion)
+      Object.assign(next, { gestionKey: gestion.key, gestion: info })
+      log(`Gestión de OT abiertas: ${gestion.name} · ${info.items} OT con gestión · ${info.photos} fotos.`)
+    }
+    if (next.ignored.length) log(`Archivos no reconocidos (se ignoran): ${next.ignored.join(', ')}`)
+    await writeJsonAtomic(STATE, next)
   } catch (e) {
-    log(`No se pudo revisar la carpeta: ${e?.message || e}`)
+    if (e?.code === 'EBUSY' || e?.code === 'EPERM') {
+      log(`${current?.name ?? 'Un archivo'} está ocupado (¿abierto en Excel?). Se reintenta.`)
+      lastFolderKey = ''
+      return
+    }
+    log(`ERROR con ${current?.name ?? 'la carpeta'}: ${e?.message || e}`)
+    // se guarda el error para que la web lo muestre; los datos anteriores se mantienen
+    const files = await listExcels().catch(() => [])
+    await writeJsonAtomic(STATE, {
+      ...readState(),
+      folderKey: files.map((f) => f.key).join('\n'),
+      error: e?.message || String(e),
+      errorFile: current?.name ?? '',
+      errorAt: localStamp(),
+    })
   } finally {
     busy = false
   }
@@ -146,7 +232,7 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
   '.webmanifest': 'application/manifest+json',
 }
-const DATA_FILES = new Set(['west-real.json', 'estado.json'])
+const DATA_FILES = new Set(['west-real.json', 'estado.json', 'gestion.json'])
 
 // Texto comprimido (gzip): los datos del SAP pasan de ~9 MB a ~1 MB, clave en el celular.
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.webmanifest', '.txt'])
@@ -188,6 +274,7 @@ const server = http.createServer(async (req, res) => {
     const name = pathname.slice(6)
     const file = path.join(DATA, name)
     if (DATA_FILES.has(name) && fs.existsSync(file)) return send(req, res, file, 'no-cache')
+    if (/^fotos\/[\w-]+\.(jpe?g|png|gif|webp)$/i.test(name) && fs.existsSync(file)) return send(req, res, file, 'public, max-age=3600')
     res.writeHead(404).end()
     return
   }

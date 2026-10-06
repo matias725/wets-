@@ -49,6 +49,23 @@ export function ManagementDrawer({ ot: incoming, onClose, onSaved }) {
         </>
       }
     >
+      {ot.photos?.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Fotos ({ot.photos.length})</div>
+          <div className="grid grid-cols-2 gap-2">
+            {ot.photos.map((src) => (
+              <a key={src} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-line">
+                <img src={src} alt={`Foto de ${ot.plate}`} loading="lazy" className="aspect-[4/3] w-full object-cover transition hover:scale-105" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      {form.source && form.updatedAt && (
+        <p className="mb-3 text-xs text-muted">
+          Última gestión: {date(form.updatedAt)} · desde {form.source}
+        </p>
+      )}
       <div className="glass grid grid-cols-2 gap-4 rounded-xl p-4">
         <Stat label="Días detenida" value={<DaysBadge days={ot.daysOpen} />} />
         <Stat label="Estado SAP" value={ot.sapStatus} />

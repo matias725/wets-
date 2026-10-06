@@ -13,6 +13,17 @@ async function fromFile() {
   return null
 }
 
+// Gestión de OT abiertas y fotos del Excel editable (la escribe el servidor).
+async function gestionFile() {
+  try {
+    const res = await fetch('/data/gestion.json', { cache: 'no-cache' })
+    if (res.ok && (res.headers.get('content-type') || '').includes('json')) return await res.json()
+  } catch {
+    /* sin gestión */
+  }
+  return null
+}
+
 async function fromBrowser() {
   try {
     return (await loadSapData()) ?? null
@@ -25,7 +36,8 @@ async function fromBrowser() {
 // los leen al importarse). Fuentes: el Excel del SAP cargado desde la página
 // (guardado en este navegador) o public/data/west-real.json. Se usa el más reciente.
 async function boot() {
-  const [stored, file] = await Promise.all([fromBrowser(), fromFile()])
+  const [stored, file, gestion] = await Promise.all([fromBrowser(), fromFile(), gestionFile()])
+  if (gestion) globalThis.__WEST_GESTION__ = gestion
   const newest = [stored, file].filter(Boolean).sort((a, b) => (b.meta?.generatedAt ?? '').localeCompare(a.meta?.generatedAt ?? ''))[0]
   if (newest) globalThis.__WEST_DATA__ = newest
   const { default: App } = await import('./App.jsx')
