@@ -72,7 +72,7 @@ function MonthlyReportCard() {
   const report = useMemo(() => getMonthlyReport(month), [month])
   const s = report.summary
   const items = [
-    ['Gasto del mes', clpShort(s.spend)],
+    ['Gasto del mes (sin preparación)', clpShort(s.spend)],
     ['Preventivo', s.spend ? pct(s.preventive / s.spend) : '—'],
     ['OT recibidas', num(s.received)],
     ['OT cerradas', num(s.closed)],

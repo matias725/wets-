@@ -47,6 +47,8 @@ export default function Expenses() {
   const [type, setType] = useState('all')
   const [recovery, setRecoveryFilter] = useState('all')
   const [query, setQuery] = useState('')
+  // las OT de preparación de unidades no son mantención: por defecto van aparte
+  const [prep, setPrep] = useState('exclude')
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -56,9 +58,16 @@ export default function Expenses() {
         (area === 'all' || r.area === area) &&
         (type === 'all' || r.interventionType === type) &&
         (recovery === 'all' || r.recovery === recovery) &&
+        (prep === 'include' || (prep === 'only' ? r.preparation : !r.preparation)) &&
         (!q || [r.plate, r.workOrder, r.client, r.branch, r.reason].some((x) => String(x).toLowerCase().includes(q))),
     )
-  }, [all, year, area, type, recovery, query])
+  }, [all, year, area, type, recovery, query, prep])
+
+  // total de preparación del año (con los demás filtros), para mostrarlo aparte
+  const prepTotal = useMemo(
+    () => all.filter((r) => r.preparation && r.date.startsWith(year) && (area === 'all' || r.area === area)).reduce((s, r) => s + r.total, 0),
+    [all, year, area],
+  )
 
   const totals = useMemo(() => {
     const sum = (f) => rows.reduce((s, r) => s + f(r), 0)
@@ -136,11 +145,11 @@ export default function Expenses() {
     [],
   )
 
-  const active = [area, type, recovery].filter((x) => x !== 'all').length + (query ? 1 : 0)
+  const active = [area, type, recovery].filter((x) => x !== 'all').length + (query ? 1 : 0) + (prep !== 'exclude' ? 1 : 0)
   const exportExcel = () =>
     exportExpenses(rows, {
       year,
-      filters: ['OT cerradas', area !== 'all' && `área ${area}`, type !== 'all' && type, recovery !== 'all' && recovery, query && `búsqueda "${query}"`].filter(Boolean).join(' · '),
+      filters: ['OT cerradas', prep === 'exclude' ? 'sin OT de preparación de unidades' : prep === 'only' ? 'solo OT de preparación de unidades' : 'incluye preparación de unidades', area !== 'all' && `área ${area}`, type !== 'all' && type, recovery !== 'all' && recovery, query && `búsqueda "${query}"`].filter(Boolean).join(' · '),
     })
 
   return (
@@ -162,6 +171,17 @@ export default function Expenses() {
           <Select value={area} onChange={(e) => setArea(e.target.value)} options={[{ value: 'all', label: 'RAC y LOP' }, ...BUSINESS_AREAS]} className="w-36" aria-label="Área de negocio" />
           <Select value={type} onChange={(e) => setType(e.target.value)} options={[{ value: 'all', label: 'Todos los tipos' }, ...INTERVENTION_TYPES.map((t) => t.id)]} className="w-52" aria-label="Tipo" />
           <Select value={recovery} onChange={(e) => setRecoveryFilter(e.target.value)} options={[{ value: 'all', label: 'Recuperabilidad' }, ...RECOVERY_STATUS]} className="w-44" aria-label="Recuperabilidad" />
+          <Select
+            value={prep}
+            onChange={(e) => setPrep(e.target.value)}
+            options={[
+              { value: 'exclude', label: 'Sin preparación' },
+              { value: 'include', label: 'Con preparación' },
+              { value: 'only', label: 'Solo preparación' },
+            ]}
+            className="w-44"
+            aria-label="OT de preparación de unidades"
+          />
           {active > 0 && (
             <Button
               variant="ghost"
@@ -171,6 +191,7 @@ export default function Expenses() {
                 setType('all')
                 setRecoveryFilter('all')
                 setQuery('')
+                setPrep('exclude')
               }}
             >
               <X size={14} /> Limpiar ({active})
@@ -180,7 +201,16 @@ export default function Expenses() {
       </Card>
 
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Gasto total" value={totals.total} format={clpShort} hint={`${rows.length} OT · ${year}`} icon={CircleDollarSign} color="#ffc400" />
+        <KpiCard
+          label={prep === 'only' ? 'Preparación de unidades' : 'Gasto total'}
+          value={totals.total}
+          format={clpShort}
+          hint={prep === 'exclude' ? `${rows.length} OT · preparación aparte: ${clpShort(prepTotal)}` : `${rows.length} OT · ${year}`}
+          icon={CircleDollarSign}
+          color="#ffc400"
+          onClick={() => setPrep(prep === 'exclude' ? 'only' : 'exclude')}
+          active={prep === 'only'}
+        />
         <KpiCard label="Correctivo" value={totals.corrective} format={clpShort} hint={totals.total ? `${pct(totals.corrective / totals.total)} del gasto` : '—'} icon={Wrench} color="#3b82f6" delay={0.04} />
         <KpiCard label="Preventivo" value={totals.preventive} format={clpShort} hint={totals.total ? `${pct(totals.preventive / totals.total)} del gasto` : '—'} icon={ShieldCheck} color="#94a3b8" delay={0.08} />
         <KpiCard label="Neumáticos" value={totals.tires} format={clpShort} hint={totals.total ? `${pct(totals.tires / totals.total)} del gasto` : '—'} icon={CircleDollarSign} color="#f97316" delay={0.1} />

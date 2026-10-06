@@ -86,6 +86,7 @@ export function exportExpenses(rows, { year, filters } = {}) {
         { header: 'Cliente', value: 'client' },
         { header: 'Área', value: 'area' },
         { header: 'Tipo intervención', value: 'interventionType' },
+        { header: 'Preparación de unidad', value: (r) => (r.preparation ? 'Sí' : '') },
         { header: 'Motivo', value: 'reason', wrap: true, width: 48 },
         { header: 'Correctivo', value: 'corrective', fmt: 'clp', total: 'sum' },
         { header: 'Preventivo', value: 'preventive', fmt: 'clp', total: 'sum' },
@@ -303,6 +304,52 @@ export function exportCostRanking(rows, { period } = {}) {
   }, rows.length)
 }
 
+// ---------------------------------------------------------- días en taller
+export function exportWorkshopDays(rows, { period, periodDays }) {
+  const top = rows.slice(0, 15)
+  const branches = groupBy(rows, (r) => r.branch, (r) => r.days, { top: 12, others: false })
+  const total = sum(rows, (r) => r.days)
+  return save(`WEST_IA_dias_en_taller_${iso(TODAY)}.xlsx`, {
+    title: 'Días detenido en taller por vehículo',
+    subtitle: subtitleOf(`${period} · sin OT de preparación de unidades`),
+    sheets: [
+      {
+        name: 'Resumen',
+        kind: 'dashboard',
+        kpis: [
+          { label: 'Vehículos con días en taller', value: rows.length, fmt: 'int' },
+          { label: 'Días-vehículo detenidos', value: total, fmt: 'int', color: 'FFF97316' },
+          { label: 'Promedio por vehículo', value: rows.length ? total / rows.length : 0, fmt: 'dec1', hint: `días en un período de ${periodDays}`, color: 'FF3B82F6' },
+          { label: 'En taller hoy', value: rows.filter((r) => r.inWorkshop).length, fmt: 'int', color: 'FFEF4444' },
+        ],
+        charts: [
+          { type: 'barH', title: 'Los 15 vehículos con más días detenido', wide: true, rows: 20, fmt: 'int', labels: true, categories: top.map((r) => `${r.plate} · ${r.vehicle}`), series: [{ name: 'Días', values: top.map((r) => r.days), color: 'F97316' }] },
+          { type: 'barH', title: 'Días-vehículo detenidos por sucursal', wide: true, rows: 15, fmt: 'int', labels: true, categories: cats(branches), series: [series('Días', branches)] },
+        ],
+        notes: [
+          'Los días se calculan uniendo los períodos de todas las OT del vehículo (ingreso → cierre, o hoy si sigue abierta), sin contar dos veces los días en que tuvo más de una OT a la vez.',
+          'No se cuentan las OT terminadas sin fecha de cierre. Si durante una OT el vehículo vuelve a ingresar con más km, esa estadía se corta ahí (columna "Ajustado").',
+        ],
+      },
+      detail('Vehículos', 'Días detenido por vehículo', [
+        { header: 'Patente', value: 'plate', bold: true },
+        { header: 'Vehículo', value: 'vehicle' },
+        { header: 'Categoría', value: 'category' },
+        { header: 'Sucursal', value: 'branch' },
+        { header: 'Cliente', value: 'client' },
+        { header: 'Días detenido', value: 'days', fmt: 'int', total: 'sum', bar: true, bold: true },
+        { header: '% del período', value: 'share', fmt: 'pct', scale: 'bad-high' },
+        { header: 'Ingresos a taller', value: 'stays', fmt: 'int', total: 'sum' },
+        { header: 'OT', value: 'orders', fmt: 'int', total: 'sum' },
+        { header: 'Estadía más larga (días)', value: 'longest', fmt: 'int' },
+        { header: 'Promedio por ingreso (días)', value: (r) => Math.round(r.avgStay * 10) / 10, fmt: 'dec1' },
+        { header: 'En taller hoy', value: (r) => (r.inWorkshop ? `Sí · ${r.openDays} días` : '') },
+        { header: 'Ajustado', value: (r) => (r.trimmed ? 'OT abierta en SAP con el vehículo circulando: se recortó' : ''), width: 30 },
+      ], rows, { freezeCols: 1 }),
+    ],
+  }, rows.length)
+}
+
 // ----------------------------------------------------------------- visitas
 export function exportVisit(visit, rows, branch) {
   const results = groupBy(rows, (r) => r.result, () => 1, { top: 6 })
@@ -425,7 +472,7 @@ export function exportMonthly(report, monthName) {
           { label: 'OT abiertas hoy', value: s.openNow, fmt: 'int', color: 'FFF97316' },
           { label: 'Más de 15 días', value: s.stalledNow, fmt: 'int', color: 'FFEF4444' },
           { label: 'Mantenciones por hacer', value: report.maintenance.length, fmt: 'int', hint: 'vencidas o a menos de 1.000 km', color: 'FF94A3B8' },
-          { label: 'Correctivo', value: s.corrective, fmt: 'clp' },
+          { label: 'Preparación (aparte)', value: s.preparation, fmt: 'clp', hint: 'unidades para clientes · no es falla', color: 'FFEAB308' },
         ],
         charts: [
           { type: 'doughnut', title: 'Gasto por tipo de intervención', fmt: 'clp', categories: cats(types), series: [series('Gasto', types)] },

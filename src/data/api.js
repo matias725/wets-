@@ -335,6 +335,8 @@ export function getExpenseRows(branchId = ALL_BRANCHES) {
         interventionType: o.interventionType,
         reason: o.reason,
         category: v?.category,
+        // preparación o equipamiento de unidades para clientes y faenas: no es falla
+        preparation: isPreparation(o),
         total: o.totalCost,
         preventive,
         corrective,
@@ -553,6 +555,82 @@ export function getCostRanking(branchId = ALL_BRANCHES, { from, to } = {}) {
     .sort((a, b) => b.spend - a.spend || b.total - a.total)
 }
 
+/**
+ * Días detenido en taller por vehículo en un período. Une los períodos de sus OT
+ * (ingreso → cierre, o hoy si sigue abierta) para no contar dos veces los días
+ * en que tuvo más de una OT a la vez. Por defecto sin OT de preparación.
+ */
+export function getWorkshopDays(branchId = ALL_BRANCHES, { from, to, includePreparation = false } = {}) {
+  const start = new Date((from || '2000-01-01') + 'T00:00:00').getTime()
+  const end = Math.min(new Date((to || iso(TODAY)) + 'T00:00:00').getTime() + DAY, TODAY.getTime() + DAY)
+  const periodDays = Math.max(1, Math.round((end - start) / DAY))
+  const rows = []
+  for (const [plate, list] of ordersByPlate) {
+    const v = vehicleByPlate(plate)
+    if (!v || v.status === 'sold' || !inBranch(branchId)(v)) continue
+    const spans = []
+    let orders = 0
+    let open = null
+    let trimmed = 0
+    const ots = list.filter((o) => o.receivedDate && (includePreparation || !isPreparation(o)))
+    for (const o of ots) {
+      const active = ACTIVE_SAP_STATUS.has(o.sapStatus)
+      // terminada en SAP pero sin fecha de cierre: no se sabe cuánto duró
+      if (!active && !o.closedDate) continue
+      const from0 = new Date(o.receivedDate + 'T00:00:00').getTime()
+      let to0 = active ? TODAY.getTime() + DAY : new Date(o.closedDate + 'T00:00:00').getTime()
+      let cut = false
+      // OT que siguió abierta en SAP mientras el vehículo circulaba: si en ese lapso
+      // el vehículo vuelve a ingresar con más km, la estadía terminó antes
+      if (o.mileage > 0) {
+        const back = ots.find((p) => p !== o && p.receivedDate > o.receivedDate && p.mileage > o.mileage + 300 && new Date(p.receivedDate + 'T00:00:00').getTime() < to0)
+        if (back) {
+          to0 = new Date(back.receivedDate + 'T00:00:00').getTime()
+          trimmed += 1
+          cut = true
+        }
+      }
+      const a = Math.max(from0, start)
+      const b = Math.min(to0, end)
+      if (b <= a) continue
+      spans.push([a, b])
+      orders += 1
+      if (active && !cut && (!open || o.receivedDate < open.receivedDate)) open = o
+    }
+    if (!spans.length) continue
+    spans.sort((x, y) => x[0] - y[0])
+    const merged = [spans[0].slice()]
+    for (const [a, b] of spans.slice(1)) {
+      const last = merged.at(-1)
+      if (a <= last[1]) last[1] = Math.max(last[1], b)
+      else merged.push([a, b])
+    }
+    const lengths = merged.map(([a, b]) => Math.round((b - a) / DAY))
+    const days = lengths.reduce((s, d) => s + d, 0)
+    const ev = enrichVehicle(v)
+    rows.push({
+      plate,
+      vehicle: `${v.brand} ${v.model}`,
+      branchId: v.branchId,
+      branch: ev.branch,
+      client: ev.client,
+      category: ev.categoryLabel,
+      orders,
+      stays: merged.length,
+      days,
+      share: days / periodDays,
+      longest: Math.max(...lengths),
+      avgStay: days / merged.length,
+      inWorkshop: Boolean(open),
+      openSince: open?.receivedDate ?? null,
+      openDays: open ? daysBetween(open.receivedDate) : null,
+      // OT recortadas porque el vehículo volvió con más km (OT abierta en SAP sin estar detenido)
+      trimmed,
+    })
+  }
+  return { periodDays, rows: rows.sort((a, b) => b.days - a.days) }
+}
+
 /** Indicadores por sucursal para compararlas entre sí (no depende del filtro de sucursal). */
 export function getBranchComparison({ from, to } = {}) {
   const spend = {}
@@ -650,7 +728,9 @@ export function getMonthlyReport(month) {
   const to = `${month}-31`
   const received = WORK_ORDERS.filter((o) => inRange(o.receivedDate, from, to))
   const closed = WORK_ORDERS.filter((o) => !ACTIVE_SAP_STATUS.has(o.sapStatus) && inRange(o.closedDate, from, to))
-  const expenses = getExpenseRows(ALL_BRANCHES).filter((e) => e.month === month)
+  const monthRows = getExpenseRows(ALL_BRANCHES).filter((e) => e.month === month)
+  // la preparación de unidades no es gasto de mantención: se informa aparte
+  const expenses = monthRows.filter((e) => !e.preparation)
   const vehicles = getVehicles(ALL_BRANCHES)
   const down = vehicles.filter((v) => v.status === 'workshop' || v.status === 'out').length
   const open = getOpenWorkOrders(ALL_BRANCHES)
@@ -668,6 +748,7 @@ export function getMonthlyReport(month) {
       spend: expenses.reduce((s, e) => s + e.total, 0),
       preventive: expenses.reduce((s, e) => s + e.preventive, 0),
       corrective: expenses.reduce((s, e) => s + e.corrective, 0),
+      preparation: monthRows.filter((e) => e.preparation).reduce((s, e) => s + e.total, 0),
       openNow: open.length,
       stalledNow: open.filter((o) => o.daysOpen >= 15).length,
     },

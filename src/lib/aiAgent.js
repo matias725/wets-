@@ -2,7 +2,7 @@
 // datos de WEST IA en el navegador. A Claude solo le llegan los resultados de
 // las consultas que pide, no el Excel completo.
 import {
-  ALL_BRANCHES, BRANCHES, META, TODAY, branchName, getBranchComparison, getCostRanking, getMaintenanceForecast,
+  ALL_BRANCHES, BRANCHES, META, TODAY, branchName, getBranchComparison, getCostRanking, getMaintenanceForecast, getWorkshopDays,
   getOpenWorkOrders, getVehicle, getVehicles, iso, isPreparation, isPreventiveLine,
 } from '@/data/api'
 import { WORK_ORDERS } from '@/data/dataset'
@@ -210,6 +210,12 @@ export const TOOLS = [
     name: 'ranking_gasto',
     description:
       'Vehículos que más gastan en un período, con desglose preventivo/correctivo/siniestros, gasto vs. promedio de su categoría y sugerencia (evaluar venta / revisar). La preparación se muestra aparte y no cuenta como gasto.',
+    input_schema: { type: 'object', properties: { desde: { type: 'string' }, hasta: { type: 'string' }, sucursal: { type: 'string' }, limite: { type: 'integer' } } },
+  },
+  {
+    name: 'dias_en_taller',
+    description:
+      'Días que cada vehículo estuvo detenido en taller en un período (uniendo sus OT, sin contar dos veces los traslapes; sin OT de preparación): días, % del período, ingresos, estadía más larga y si sigue en taller. Ordenado de más a menos días.',
     input_schema: { type: 'object', properties: { desde: { type: 'string' }, hasta: { type: 'string' }, sucursal: { type: 'string' }, limite: { type: 'integer' } } },
   },
   {
@@ -516,6 +522,31 @@ function rankingGasto(input) {
   }
 }
 
+function diasEnTaller(input) {
+  const branch = input.sucursal ? findBranch(input.sucursal) : null
+  if (input.sucursal && !branch) return { error: `No existe la sucursal "${input.sucursal}".` }
+  const { rows, periodDays } = getWorkshopDays(branch?.id ?? ALL_BRANCHES, { from: input.desde, to: input.hasta })
+  const limit = limitOf(input, 30)
+  return {
+    dias_del_periodo: periodDays,
+    vehiculos: rows.length,
+    dias_vehiculo_total: rows.reduce((s, r) => s + r.days, 0),
+    mostrados: Math.min(limit, rows.length),
+    ranking: rows.slice(0, limit).map((r) => ({
+      patente: r.plate,
+      vehiculo: r.vehicle,
+      sucursal: r.branch,
+      cliente: r.client,
+      dias: r.days,
+      porcentaje_periodo: Math.round(r.share * 1000) / 10,
+      ingresos: r.stays,
+      ot: r.orders,
+      estadia_mas_larga: r.longest,
+      en_taller_hoy: r.inWorkshop ? `sí, hace ${r.openDays} días` : 'no',
+    })),
+  }
+}
+
 function compararSucursales(input) {
   return {
     sucursales: getBranchComparison({ from: input.desde, to: input.hasta }).map((r) => ({
@@ -631,6 +662,7 @@ const STEP_LABEL = {
   mantenciones: 'Revisando mantenciones',
   ranking_gasto: 'Calculando ranking de gasto',
   comparar_sucursales: 'Comparando sucursales',
+  dias_en_taller: 'Calculando días en taller',
   analisis_avanzado: 'Ejecutando análisis',
   mostrar_grafico: 'Preparando gráfico',
 }
@@ -678,6 +710,8 @@ export async function runTool(name, input, charts = []) {
       return rankingGasto(input)
     case 'comparar_sucursales':
       return compararSucursales(input)
+    case 'dias_en_taller':
+      return diasEnTaller(input)
     case 'analisis_avanzado':
       return analisisAvanzado(input)
     case 'mostrar_grafico': {
@@ -707,7 +741,7 @@ Conceptos de los datos:
 - OT = orden de trabajo del SAP. "Fecha de ingreso" es cuando el vehículo entra al taller. Abiertas = estado SAP "No iniciada" o "Proceso".
 - Costos en pesos chilenos (CLP), suma de las líneas de la OT tal como vienen del SAP.
 - Tipos de intervención: Correctiva, Preventiva, Preventiva + Correctiva, DYP (desabolladura y pintura), Compañía de seguros, Revisión técnica, Lavado, Equipamiento unidades nuevas, Otros.
-- Las OT de preparación o equipamiento para clientes y faenas NO son fallas: el SAP a veces las marca como correctivas. Exclúyelas (excluir_preparacion) al analizar fallas o gasto de mantención, y menciónalo.
+- Las OT de preparación o equipamiento para clientes y faenas NO son fallas: el SAP a veces las marca como correctivas. Exclúyelas (excluir_preparacion) al analizar fallas o gasto de mantención, y menciónalo. La pantalla de Gastos también las deja fuera por defecto.
 - Cada línea de OT (repuesto o mano de obra) tiene una clase del catálogo de repuestos de West: Preventivo, Correctivo, Neumáticos o Equipamiento. Neumáticos y equipamiento se informan aparte del correctivo.
 - La gestión de las OT abiertas (estado real, responsable, compromiso, observación) viene del Excel editable de WEST IA y de lo que se registre en la app.
 - Mantención preventiva cada 10.000 km. El km del maestro es el de la última OT; el km de hoy se estima con el ritmo de uso.

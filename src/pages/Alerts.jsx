@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlarmClock, Building2, Download, TrendingUp, Wrench } from 'lucide-react'
+import { AlarmClock, Building2, Download, Timer, TrendingUp, Wrench } from 'lucide-react'
 import { useData } from '@/hooks/useData'
 import { useApp } from '@/context/AppContext'
-import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceForecast, getStalledOrders, TODAY, iso } from '@/data/api'
+import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceForecast, getStalledOrders, getWorkshopDays, TODAY, iso } from '@/data/api'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -12,12 +12,13 @@ import { DataTable } from '@/components/ui/DataTable'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { PageHeader, Segmented } from '@/components/ui/misc'
 import { clp, cx, date, km, monthLong, num, pct } from '@/lib/format'
-import { exportCostRanking, exportMaintenance, exportOpenOrders } from '@/lib/excel/exports'
+import { exportCostRanking, exportMaintenance, exportOpenOrders, exportWorkshopDays } from '@/lib/excel/exports'
 
 const TABS = [
   { value: 'ot', label: 'OT estancadas', icon: AlarmClock },
   { value: 'mant', label: 'Mantenciones', icon: Wrench },
   { value: 'gasto', label: 'Gasto por vehículo', icon: TrendingUp },
+  { value: 'dias', label: 'Días en taller', icon: Timer },
   { value: 'suc', label: 'Sucursales', icon: Building2 },
 ]
 
@@ -237,6 +238,64 @@ function CostTab({ rows, period }) {
   )
 }
 
+// ----------------------------------------------------------- días en taller
+function WorkshopDaysTab({ data, period }) {
+  const navigate = useNavigate()
+  const { rows, periodDays } = data
+  const [onlyNow, setOnlyNow] = useState(false)
+  const shown = onlyNow ? rows.filter((r) => r.inWorkshop) : rows
+  const total = rows.reduce((s, r) => s + r.days, 0)
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Días detenido en taller por vehículo"
+        subtitle={`${period} (${num(periodDays)} días). Se unen los períodos de todas sus OT (ingreso → cierre, o hoy si sigue abierta), sin contar dos veces los días con más de una OT. No incluye OT de preparación de unidades ni OT terminadas sin fecha de cierre. Si durante una OT el vehículo vuelve a ingresar con más km, se considera que esa estadía terminó ahí ("ajustado"). Total: ${num(total)} días-vehículo.`}
+        icon={Timer}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented value={onlyNow} onChange={setOnlyNow} options={[{ value: false, label: `Todos (${rows.length})` }, { value: true, label: `En taller hoy (${rows.filter((r) => r.inWorkshop).length})` }]} />
+            <Button size="sm" disabled={!shown.length} onClick={() => exportWorkshopDays(shown, { period, periodDays })}>
+              <Download size={14} /> Excel
+            </Button>
+          </div>
+        }
+      />
+      <DataTable
+        data={shown}
+        pageSize={15}
+        onRowClick={(r) => navigate(`/flota/${r.plate}`)}
+        emptyText="Sin vehículos en taller en el período"
+        minWidth={980}
+        columns={[
+          { id: 'rank', header: '#', enableSorting: false, cell: ({ row }) => <span className="tabular text-muted">{row.index + 1}</span> },
+          { accessorKey: 'plate', header: 'Vehículo', cell: ({ row: { original: r } }) => <Vehicle plate={r.plate} sub={r.vehicle} /> },
+          { accessorKey: 'branch', header: 'Sucursal' },
+          { accessorKey: 'client', header: 'Cliente', cell: (c) => <span className="line-clamp-1 max-w-48 text-xs text-muted">{c.getValue()}</span> },
+          { accessorKey: 'days', header: 'Días detenido', cell: (c) => <DaysBadge days={c.getValue()} />, meta: { align: 'right' } },
+          { accessorKey: 'share', header: '% del período', cell: (c) => <span className="tabular">{pct(c.getValue(), 1)}</span>, meta: { align: 'right' } },
+          { accessorKey: 'stays', header: 'Ingresos', cell: (c) => num(c.getValue()), meta: { align: 'right' } },
+          { accessorKey: 'orders', header: 'OT', cell: (c) => num(c.getValue()), meta: { align: 'right' } },
+          { accessorKey: 'longest', header: 'Estadía más larga', cell: (c) => `${num(c.getValue())} d`, meta: { align: 'right' } },
+          {
+            accessorKey: 'inWorkshop',
+            header: 'Hoy',
+            cell: ({ row: { original: r } }) => (
+              <div className="flex flex-col items-start gap-1">
+                {r.inWorkshop ? <Badge color="#f97316">En taller · {r.openDays} d</Badge> : <span className="text-xs text-muted">Operativo</span>}
+                {r.trimmed > 0 && (
+                  <span className="text-[11px] text-muted" title="Una OT siguió abierta en SAP mientras el vehículo circulaba (volvió a ingresar con más km); se recortó">
+                    ajustado
+                  </span>
+                )}
+              </div>
+            ),
+          },
+        ]}
+      />
+    </Card>
+  )
+}
+
 // --------------------------------------------------------------- sucursales
 const COMPARE = [
   { key: 'vehicles', label: 'Vehículos', fmt: num },
@@ -332,6 +391,7 @@ export default function Alerts() {
   const maintenance = useData((b) => getMaintenanceForecast(b, 30))
   const ranking = useData((b) => getCostRanking(b, range), [period])
   const branches = useData(() => getBranchComparison(range), [period])
+  const workshopDays = useData((b) => getWorkshopDays(b, range), [period])
 
   const flagged = ranking.filter((r) => r.advice === 'sell').length
   const late = maintenance.filter((v) => v.due === 'late').length
@@ -366,6 +426,7 @@ export default function Alerts() {
       {tab === 'ot' && <StalledTab rows={stalled} minDays={minDays} setMinDays={setMinDays} />}
       {tab === 'mant' && <MaintenanceTab rows={maintenance} />}
       {tab === 'gasto' && <CostTab rows={ranking} period={periodLabel} />}
+      {tab === 'dias' && <WorkshopDaysTab data={workshopDays} period={period.length === 4 ? `Año ${period}` : monthLong(period)} />}
       {tab === 'suc' && <BranchTab rows={branches} period={periodLabel} selected={branchId} />}
     </>
   )
