@@ -1,6 +1,7 @@
 // Capa de acceso a datos. Las pantallas solo usan estas funciones.
 // Para conectar WEST IA real, reemplazar el contenido de cada función por una
 // llamada al puente FastAPI (api_bridge.py) manteniendo la misma forma de datos.
+import { toast } from 'sonner'
 import { BRANCHES, BRANCH_BY_ID, ALL_BRANCHES } from './branches'
 import { ACTIVE_SAP_STATUS, CATEGORY_BY_ID, KANBAN_COLUMNS, VEHICLE_STATUS } from './catalog'
 import { COMPANIES, PERSONS, RESPONSIBLES, FALLBACK_RESPONSIBLE } from './people'
@@ -20,13 +21,40 @@ const state = {
   visits: VISITS.map((v) => ({ ...v, items: v.items.map((i) => ({ ...i })) })),
   stalled: STALLED_WITHOUT_OT.map((s) => ({ ...s })),
 }
+// Con datos reales, la gestión vive en este computador (servidor) y el navegador
+// guarda solo una copia. Lo que estaba solo en el navegador se traspasa una vez.
+const SERVER_STATE = isRealData ? (globalThis.__WEST_WEB_STATE__ ?? null) : null
+const isNewer = (a, b) => String(a?.updatedAt ?? '') > String(b?.updatedAt ?? '')
+let pendingMigration = false
+if (SERVER_STATE) {
+  Object.assign(state.management, SERVER_STATE.management || {})
+  Object.assign(state.recovery, SERVER_STATE.recovery || {})
+  if (Array.isArray(SERVER_STATE.visits)) state.visits = SERVER_STATE.visits
+  if (Array.isArray(SERVER_STATE.stalled)) state.stalled = SERVER_STATE.stalled
+}
 try {
   const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
   if (saved) {
-    Object.assign(state.management, saved.management || {})
-    Object.assign(state.recovery, saved.recovery || {})
-    if (Array.isArray(saved.visits)) state.visits = saved.visits
-    if (Array.isArray(saved.stalled)) state.stalled = saved.stalled
+    for (const [ot, m] of Object.entries(saved.management || {})) {
+      if (!state.management[ot] || isNewer(m, state.management[ot])) {
+        state.management[ot] = m
+        pendingMigration = true
+      }
+    }
+    for (const [ot, r] of Object.entries(saved.recovery || {})) {
+      if (!(ot in state.recovery)) {
+        state.recovery[ot] = r
+        pendingMigration = true
+      }
+    }
+    if (Array.isArray(saved.visits) && !Array.isArray(SERVER_STATE?.visits)) {
+      state.visits = saved.visits
+      pendingMigration = true
+    }
+    if (Array.isArray(saved.stalled) && !Array.isArray(SERVER_STATE?.stalled)) {
+      state.stalled = saved.stalled
+      pendingMigration = true
+    }
   }
 } catch {
   /* almacenamiento no disponible: se trabaja solo en memoria */
@@ -69,14 +97,82 @@ let fleetIndex = new Map(fleet.map((v) => [v.plate, v]))
 
 let version = 0
 const listeners = new Set()
-function commit() {
+function notify() {
   version += 1
+  listeners.forEach((l) => l())
+}
+function commit() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   } catch {
     /* sin persistencia */
   }
-  listeners.forEach((l) => l())
+  notify()
+  schedulePush()
+}
+
+// ------------------------------------------------- guardado en el computador
+let pushTimer = null
+let retryTimer = null
+let failedOnce = false
+function schedulePush(delay = 400) {
+  if (!SERVER_STATE) return
+  clearTimeout(pushTimer)
+  pushTimer = setTimeout(push, delay)
+}
+/** Trae lo que guardaron otros navegadores (gana lo más reciente de cada OT). */
+function applyServer(remote) {
+  let changed = false
+  for (const [ot, m] of Object.entries(remote?.management || {})) {
+    if (!state.management[ot] || isNewer(m, state.management[ot])) {
+      state.management[ot] = m
+      changed = true
+    }
+  }
+  for (const [ot, r] of Object.entries(remote?.recovery || {})) {
+    if (state.recovery[ot] !== r) {
+      state.recovery[ot] = r
+      changed = true
+    }
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch {
+      /* sin copia local */
+    }
+    notify()
+  }
+}
+async function push() {
+  clearTimeout(retryTimer)
+  try {
+    const res = await fetch('/api/estado-web', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    applyServer(await res.json())
+    if (failedOnce) {
+      failedOnce = false
+      toast.success('Gestión guardada en el computador', { description: 'Se recuperó la conexión con el servidor de WEST IA' })
+    }
+  } catch {
+    if (!failedOnce) {
+      failedOnce = true
+      toast.warning('La gestión quedó solo en este navegador', { description: 'No hay conexión con el servidor de WEST IA; se reintentará sola' })
+    }
+    retryTimer = setTimeout(push, 15_000)
+  }
+}
+async function pull() {
+  try {
+    const res = await fetch('/api/estado-web', { cache: 'no-store' })
+    if (res.ok) applyServer(await res.json())
+  } catch {
+    /* sin servidor por ahora */
+  }
+}
+if (SERVER_STATE) {
+  if (pendingMigration) schedulePush(1500)
+  setInterval(pull, 60_000)
 }
 export const store = {
   subscribe(fn) {
@@ -103,6 +199,13 @@ export const clientById = Object.fromEntries([...PERSONS, ...COMPANIES].map((c) 
 export const vehicleByPlate = (plate) => fleetIndex.get(plate)
 export const branchName = (id) => BRANCH_BY_ID[id]?.name ?? 'Sin sucursal'
 export const clientName = (id) => clientById[id]?.name ?? 'Sin cliente'
+
+/** Nombres usados como responsable en la gestión de OT, ordenados por uso. */
+export function knownResponsibles() {
+  const count = {}
+  Object.values(state.management).forEach((m) => m?.responsible && (count[m.responsible] = (count[m.responsible] ?? 0) + 1))
+  return Object.entries(count).sort((a, b) => b[1] - a[1]).map(([n]) => n)
+}
 
 export function responsiblesFor(branchId) {
   // Con datos SAP: quienes generan OT en esa sucursal.
@@ -290,7 +393,8 @@ export function saveManagement(workOrder, patch) {
     ...(state.management[workOrder] || {}),
     ...patch,
     source: 'WEST IA web',
-    updatedAt: iso(new Date()),
+    // fecha y hora: si dos personas editan la misma OT, gana el cambio más reciente
+    updatedAt: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 19),
   }
   commit()
 }

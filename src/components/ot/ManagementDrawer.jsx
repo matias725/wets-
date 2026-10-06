@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Save } from 'lucide-react'
 import { BLOCKERS, INTERVENTION_COLOR, PRIORITIES, REAL_STATUS } from '@/data/catalog'
-import { META, responsiblesFor, saveManagement } from '@/data/api'
+import { META, knownResponsibles, responsiblesFor, saveManagement } from '@/data/api'
 import { Drawer } from '@/components/ui/Overlay'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
@@ -26,7 +26,9 @@ export function ManagementDrawer({ ot: incoming, onClose, onSaved }) {
 
   if (!ot || !form) return null
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
-  const responsibles = responsiblesFor(ot.branchId)
+  // los de la sucursal primero; también el actual y los usados en otras OT (p. ej. del Excel editable),
+  // para que un nombre fuera de la lista no se muestre vacío ni se borre al guardar
+  const responsibles = [...new Set([form.responsible, ...responsiblesFor(ot.branchId), ...knownResponsibles()].filter(Boolean))]
   const save = () => {
     saveManagement(ot.workOrder, form)
     toast.success(`Gestión de la OT ${ot.workOrder} guardada`)

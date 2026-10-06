@@ -18,6 +18,7 @@ import { readXlsx } from '../src/lib/xlsxReader.js'
 import { detectKind, parseGestion, parsePartsCatalog } from '../src/lib/sapExtras.js'
 import { extractPhotos } from './fotos.mjs'
 import { createIaHandler } from './ia.mjs'
+import { createWebStateHandler } from './estadoWeb.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DIST = path.join(ROOT, 'dist')
@@ -264,6 +265,7 @@ function send(req, res, file, cache) {
 }
 
 const handleIa = createIaHandler({ root: ROOT, dataDir: DATA, log })
+const handleWebState = createWebStateHandler({ dataDir: DATA, log, stamp: localStamp })
 
 const server = http.createServer((req, res) => {
   handleRequest(req, res).catch((e) => {
@@ -282,6 +284,7 @@ async function handleRequest(req, res) {
     return
   }
   if (await handleIa(req, res, pathname)) return
+  if (await handleWebState(req, res, pathname)) return
   if (pathname.startsWith('/data/')) {
     const name = pathname.slice(6)
     const file = path.join(DATA, name)
