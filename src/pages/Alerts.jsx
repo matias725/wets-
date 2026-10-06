@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlarmClock, Building2, Download, Timer, TrendingUp, Wrench } from 'lucide-react'
+import { AlarmClock, Building2, Download, Repeat, Timer, TrendingUp, Wrench } from 'lucide-react'
 import { useData } from '@/hooks/useData'
 import { useApp } from '@/context/AppContext'
-import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceForecast, getStalledOrders, getWorkshopDays, TODAY, iso } from '@/data/api'
+import { getAvailableMonths, getBranchComparison, getCostRanking, getMaintenanceForecast, getRepeatRepairs, getStalledOrders, getWorkshopDays, TODAY, iso } from '@/data/api'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -12,13 +12,14 @@ import { DataTable } from '@/components/ui/DataTable'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { PageHeader, Segmented } from '@/components/ui/misc'
 import { clp, cx, date, km, monthLong, num, pct } from '@/lib/format'
-import { exportCostRanking, exportMaintenance, exportOpenOrders, exportWorkshopDays } from '@/lib/excel/exports'
+import { exportCostRanking, exportMaintenance, exportOpenOrders, exportRepeatRepairs, exportWorkshopDays } from '@/lib/excel/exports'
 
 const TABS = [
   { value: 'ot', label: 'OT estancadas', icon: AlarmClock },
   { value: 'mant', label: 'Mantenciones', icon: Wrench },
   { value: 'gasto', label: 'Gasto por vehículo', icon: TrendingUp },
   { value: 'dias', label: 'Días en taller', icon: Timer },
+  { value: 'retrabajo', label: 'Re-trabajos', icon: Repeat },
   { value: 'suc', label: 'Sucursales', icon: Building2 },
 ]
 
@@ -296,6 +297,74 @@ function WorkshopDaysTab({ data, period }) {
   )
 }
 
+// ------------------------------------------------- re-trabajos y garantías
+function ReworkTab({ data, period }) {
+  const navigate = useNavigate()
+  const [view, setView] = useState('parts')
+  const warranty = data.pairs.filter((p) => p.kind === 'warranty')
+  const wear = data.pairs.filter((p) => p.kind === 'wear')
+  const parts = data.parts.filter((r) => r.kind === 'warranty')
+  const pairColumns = [
+    { accessorKey: 'plate', header: 'Vehículo', cell: ({ row: { original: p } }) => <Vehicle plate={p.plate} sub={p.vehicle} /> },
+    { accessorKey: 'part', header: 'Repuesto', cell: (c) => <span className="line-clamp-2 max-w-72 text-xs">{c.getValue()}</span> },
+    { accessorKey: 'days', header: 'Días entre cambios', cell: (c) => <span className="tabular font-semibold">{c.getValue()} d</span>, meta: { align: 'right' } },
+    { accessorKey: 'km', header: 'Km entre cambios', cell: (c) => (c.getValue() ? km(c.getValue()) : '—'), meta: { align: 'right' } },
+    { id: 'orders', accessorFn: (p) => p.secondDate, header: 'OT', cell: ({ row: { original: p } }) => <span className="text-xs text-muted">{p.firstOrder} → {p.secondOrder}<br />{date(p.firstDate)} → {date(p.secondDate)}</span> },
+    { accessorKey: 'branch', header: 'Sucursal' },
+    { accessorKey: 'cost', header: 'Costo 2º cambio', cell: (c) => <span className="font-semibold">{clp(c.getValue())}</span>, meta: { align: 'right' } },
+  ]
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Re-trabajos y posibles garantías"
+        subtitle={`${period}. Posible garantía: un componente (no de desgaste) cambiado otra vez en el mismo vehículo dentro de 90 días: repuesto defectuoso, trabajo mal hecho o causa de fondo sin resolver. Desgaste acelerado: pastillas, balatas, pernos y similares repetidos en menos de 30 días. Sin OT de preparación ni mano de obra.`}
+        icon={Repeat}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'parts', label: `Componentes (${parts.length})` },
+                { value: 'warranty', label: `Posibles garantías (${warranty.length})` },
+                { value: 'wear', label: `Desgaste acelerado (${wear.length})` },
+              ]}
+            />
+            <Button size="sm" disabled={!data.pairs.length} onClick={() => exportRepeatRepairs(data, { period })}>
+              <Download size={14} /> Excel
+            </Button>
+          </div>
+        }
+      />
+      {view === 'parts' ? (
+        <DataTable
+          data={parts}
+          pageSize={15}
+          emptyText="Sin componentes repetidos en el período"
+          minWidth={900}
+          columns={[
+            { accessorKey: 'part', header: 'Componente', cell: ({ row: { original: r } }) => <Vehicle plate={r.part} sub={r.code} /> },
+            { accessorKey: 'repeats', header: 'Veces repetido', cell: (c) => <span className="tabular font-semibold">{c.getValue()}</span>, meta: { align: 'right' } },
+            { accessorKey: 'plates', header: 'Vehículos', cell: (c) => num(c.getValue()), meta: { align: 'right' } },
+            { accessorKey: 'avgDays', header: 'Días prom. entre cambios', cell: (c) => `${num(c.getValue())} d`, meta: { align: 'right' } },
+            { accessorKey: 'cost', header: 'Costo de las repeticiones', cell: (c) => <span className="font-semibold">{clp(c.getValue())}</span>, meta: { align: 'right' } },
+            { accessorKey: 'branches', header: 'Sucursales', cell: (c) => <span className="line-clamp-2 max-w-64 text-xs text-muted">{c.getValue()}</span> },
+          ]}
+        />
+      ) : (
+        <DataTable
+          data={view === 'warranty' ? warranty : wear}
+          pageSize={15}
+          onRowClick={(p) => navigate(`/flota/${p.plate}`)}
+          emptyText="Sin casos en el período"
+          minWidth={1000}
+          columns={pairColumns}
+        />
+      )}
+    </Card>
+  )
+}
+
 // --------------------------------------------------------------- sucursales
 const COMPARE = [
   { key: 'vehicles', label: 'Vehículos', fmt: num },
@@ -392,6 +461,7 @@ export default function Alerts() {
   const ranking = useData((b) => getCostRanking(b, range), [period])
   const branches = useData(() => getBranchComparison(range), [period])
   const workshopDays = useData((b) => getWorkshopDays(b, range), [period])
+  const rework = useData((b) => getRepeatRepairs(b, range), [period])
 
   const flagged = ranking.filter((r) => r.advice === 'sell').length
   const late = maintenance.filter((v) => v.due === 'late').length
@@ -426,6 +496,7 @@ export default function Alerts() {
       {tab === 'ot' && <StalledTab rows={stalled} minDays={minDays} setMinDays={setMinDays} />}
       {tab === 'mant' && <MaintenanceTab rows={maintenance} />}
       {tab === 'gasto' && <CostTab rows={ranking} period={periodLabel} />}
+      {tab === 'retrabajo' && <ReworkTab data={rework} period={period.length === 4 ? `Año ${period}` : monthLong(period)} />}
       {tab === 'dias' && <WorkshopDaysTab data={workshopDays} period={period.length === 4 ? `Año ${period}` : monthLong(period)} />}
       {tab === 'suc' && <BranchTab rows={branches} period={periodLabel} selected={branchId} />}
     </>

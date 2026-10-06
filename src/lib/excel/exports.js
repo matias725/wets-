@@ -304,6 +304,67 @@ export function exportCostRanking(rows, { period } = {}) {
   }, rows.length)
 }
 
+// ------------------------------------------------- re-trabajos y garantías
+export function exportRepeatRepairs({ pairs, parts }, { period }) {
+  const warranty = pairs.filter((p) => p.kind === 'warranty')
+  const topParts = parts.filter((r) => r.kind === 'warranty').slice(0, 12)
+  const branches = groupBy(warranty, (p) => p.branch, (p) => p.cost, { top: 12, others: false })
+  const partCols = [
+    { header: 'Código', value: 'code', bold: true },
+    { header: 'Repuesto', value: 'part', width: 46 },
+    { header: 'Veces repetido', value: 'repeats', fmt: 'int', total: 'sum', bold: true },
+    { header: 'Vehículos', value: 'plates', fmt: 'int' },
+    { header: 'Días promedio entre cambios', value: (r) => Math.round(r.avgDays), fmt: 'int', scale: 'good-high' },
+    { header: 'Costo de las repeticiones', value: 'cost', fmt: 'clp', total: 'sum', bar: true },
+    { header: 'Sucursales', value: 'branches', width: 44 },
+  ]
+  const pairCols = [
+    { header: 'Patente', value: 'plate', bold: true },
+    { header: 'Vehículo', value: 'vehicle' },
+    { header: 'Repuesto', value: 'part', width: 42 },
+    { header: 'Código', value: 'code' },
+    { header: 'Días entre cambios', value: 'days', fmt: 'int', scale: 'good-high', bold: true },
+    { header: 'Km entre cambios', value: 'km', fmt: 'km' },
+    { header: '1ª OT', value: 'firstOrder' },
+    { header: '1er cambio', value: 'firstDate', fmt: 'date' },
+    { header: 'Sucursal 1ª', value: 'firstBranch' },
+    { header: '2ª OT', value: 'secondOrder' },
+    { header: '2º cambio', value: 'secondDate', fmt: 'date' },
+    { header: 'Sucursal 2ª', value: 'branch' },
+    { header: 'Costo 2º cambio', value: 'cost', fmt: 'clp', total: 'sum', bar: true },
+    { header: 'Cliente', value: 'client' },
+    { header: 'Revisión', value: () => null, list: ['Garantía reclamada', 'Re-trabajo interno', 'Falla nueva (no aplica)', 'Desgaste normal'], width: 20 },
+  ]
+  return save(`Re-trabajos y garantías ${iso(TODAY)}.xlsx`, {
+    title: 'Re-trabajos y posibles garantías',
+    subtitle: subtitleOf(`${period} · mismo repuesto correctivo cambiado de nuevo en el mismo vehículo`),
+    sheets: [
+      {
+        name: 'Resumen',
+        kind: 'dashboard',
+        kpis: [
+          { label: 'Posibles garantías', value: warranty.length, fmt: 'int', hint: 'componentes repetidos en ≤ 90 días', color: 'FFEF4444' },
+          { label: 'Costo de las repeticiones', value: sum(warranty, (p) => p.cost), fmt: 'clp', hint: 'segundos cambios · solo una parte será garantía', color: 'FFF97316' },
+          { label: 'Desgaste acelerado', value: pairs.length - warranty.length, fmt: 'int', hint: 'piezas de desgaste repetidas en ≤ 30 días', color: 'FF3B82F6' },
+          { label: 'Vehículos involucrados', value: new Set(pairs.map((p) => p.plate)).size, fmt: 'int' },
+        ],
+        charts: [
+          { type: 'barH', title: 'Componentes que más se repiten (costo de las repeticiones)', wide: true, rows: 18, fmt: 'clpM', labels: true, categories: topParts.map((r) => `${r.part} (${r.repeats}×)`.slice(0, 70)), series: [{ name: 'Costo', values: topParts.map((r) => r.cost), color: 'EF4444' }] },
+          { type: 'barH', title: 'Posibles garantías por sucursal (costo)', wide: true, rows: 14, fmt: 'clpM', labels: true, categories: cats(branches), series: [series('Costo', branches)] },
+        ],
+        notes: [
+          'Posible garantía: un componente (no de desgaste) que se cambió otra vez en el mismo vehículo dentro de 90 días. Puede ser repuesto defectuoso (reclamar al proveedor), trabajo mal hecho o una causa de fondo no resuelta.',
+          'Desgaste acelerado: pastillas, balatas, pernos y similares cambiados otra vez en menos de 30 días; revisar uso en faena o calidad del repuesto.',
+          'No incluye OT de preparación de unidades ni servicios / mano de obra. Use la columna amarilla "Revisión" para registrar el resultado de cada caso.',
+        ],
+      },
+      detail('Componentes', 'Componentes que más se repiten (posibles garantías)', partCols, parts.filter((r) => r.kind === 'warranty')),
+      detail('Posibles garantías', 'Casos: componente cambiado otra vez en ≤ 90 días', pairCols, warranty, { freezeCols: 1 }),
+      detail('Desgaste acelerado', 'Casos: pieza de desgaste cambiada otra vez en ≤ 30 días', pairCols, pairs.filter((p) => p.kind === 'wear'), { freezeCols: 1 }),
+    ],
+  }, pairs.length)
+}
+
 // ------------------------------------------------------ OT para cerrar en SAP
 export function exportOrdersToClose(rows) {
   const reasons = groupBy(rows, (r) => r.reasonLabel, () => 1, { top: 6 })

@@ -797,6 +797,88 @@ export function getOrdersToClose(branchId = ALL_BRANCHES) {
   return rows.sort((a, b) => a.priority - b.priority || a.branch.localeCompare(b.branch) || b.daysOpen - a.daysOpen)
 }
 
+/**
+ * Repuestos correctivos cambiados otra vez en el mismo vehículo en poco tiempo.
+ * - 'warranty': componente que no debería volver a fallar pronto, repetido en
+ *   ≤ 90 días → posible re-trabajo o garantía (proveedor / mano de obra).
+ * - 'wear': pieza de desgaste repetida en ≤ 30 días → desgaste acelerado.
+ * Se cuenta la segunda OT cuando su ingreso cae en el período.
+ */
+const WEAR_PART = /PASTILLA|BALATA|TUERCA|PERNO|CHAVETA|REPAR\.? NEUM|PARCHE|PLUMILLA|AMPOLLETA|FUSIBLE|GOLILLA|ABRAZADERA|BROCHE|SEGURO|TORNILLO/i
+const SERVICE_CODE = /^(SERV|MO|INGRESO|HH|LAV|TRASLADO|FLETE)/i
+export function getRepeatRepairs(branchId = ALL_BRANCHES, { from, to } = {}) {
+  const pairs = []
+  for (const [plate, list] of ordersByPlate) {
+    const byPart = new Map()
+    for (const o of list) {
+      if (!o.receivedDate || isPreparation(o)) continue
+      for (const l of o.lines) {
+        const corrective = l.cls ? l.cls === 'C' : !isPreventiveLine(l)
+        if (!corrective || l.total <= 0 || SERVICE_CODE.test(l.code) || /^SERV/i.test(l.description)) continue
+        const key = String(l.code).toUpperCase()
+        if (!byPart.has(key)) byPart.set(key, new Map())
+        const seen = byPart.get(key)
+        // una entrada por OT (si la OT trae la pieza en varias líneas, se suman)
+        const prev = seen.get(o.workOrder)
+        seen.set(o.workOrder, prev ? { ...prev, total: prev.total + l.total, qty: prev.qty + (l.qty || 0) } : { o, l, total: l.total, qty: l.qty || 0 })
+      }
+    }
+    for (const [code, seen] of byPart) {
+      const items = [...seen.values()].sort((a, b) => a.o.receivedDate.localeCompare(b.o.receivedDate))
+      for (let i = 1; i < items.length; i++) {
+        const a = items[i - 1]
+        const b = items[i]
+        if (!inRange(b.o.receivedDate, from, to)) continue
+        const days = Math.round((new Date(b.o.receivedDate + 'T00:00:00') - new Date(a.o.receivedDate + 'T00:00:00')) / DAY)
+        const wear = WEAR_PART.test(b.l.description)
+        if (days <= 0 || days > (wear ? 30 : 90)) continue
+        const v = vehicleByPlate(plate)
+        if (!inBranch(branchId)(b.o)) continue
+        pairs.push({
+          kind: wear ? 'wear' : 'warranty',
+          plate,
+          vehicle: v ? `${v.brand} ${v.model}` : '',
+          code,
+          part: b.l.description,
+          days,
+          km: a.o.mileage > 0 && b.o.mileage > a.o.mileage ? b.o.mileage - a.o.mileage : null,
+          firstOrder: a.o.workOrder,
+          firstDate: a.o.receivedDate,
+          firstBranch: a.o.branchId ? branchName(a.o.branchId) : a.o.branchRaw,
+          firstCost: a.total,
+          secondOrder: b.o.workOrder,
+          secondDate: b.o.receivedDate,
+          branch: b.o.branchId ? branchName(b.o.branchId) : b.o.branchRaw,
+          branchId: b.o.branchId,
+          cost: b.total,
+          client: b.o.clientName || '',
+        })
+      }
+    }
+  }
+  pairs.sort((x, y) => y.cost - x.cost)
+  // repuestos que más se repiten (posible pieza defectuosa o causa de fondo sin resolver)
+  const parts = new Map()
+  for (const p of pairs) {
+    let r = parts.get(p.code)
+    if (!r) parts.set(p.code, (r = { code: p.code, part: p.part, kind: p.kind, repeats: 0, cost: 0, plates: new Set(), branches: {}, days: 0 }))
+    r.repeats += 1
+    r.cost += p.cost
+    r.days += p.days
+    r.plates.add(p.plate)
+    r.branches[p.branch] = (r.branches[p.branch] ?? 0) + 1
+  }
+  const partRows = [...parts.values()]
+    .map((r) => ({
+      ...r,
+      plates: r.plates.size,
+      avgDays: r.days / r.repeats,
+      branches: Object.entries(r.branches).sort((a, b) => b[1] - a[1]).map(([b, n]) => `${b} (${n})`).join(', '),
+    }))
+    .sort((a, b) => b.cost - a.cost)
+  return { pairs, parts: partRows }
+}
+
 /** Indicadores por sucursal para compararlas entre sí (no depende del filtro de sucursal). */
 export function getBranchComparison({ from, to } = {}) {
   const spend = {}

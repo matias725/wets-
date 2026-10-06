@@ -2,7 +2,7 @@
 // datos de WEST IA en el navegador. A Claude solo le llegan los resultados de
 // las consultas que pide, no el Excel completo.
 import {
-  ALL_BRANCHES, BRANCHES, META, TODAY, branchName, getBranchComparison, getCostRanking, getMaintenanceForecast, getWorkshopDays,
+  ALL_BRANCHES, BRANCHES, META, TODAY, branchName, getBranchComparison, getCostRanking, getMaintenanceForecast, getRepeatRepairs, getWorkshopDays,
   getOpenWorkOrders, getVehicle, getVehicles, iso, isPreparation, isPreventiveLine,
 } from '@/data/api'
 import { WORK_ORDERS } from '@/data/dataset'
@@ -217,6 +217,12 @@ export const TOOLS = [
     description:
       'Días que cada vehículo estuvo detenido en taller en un período (uniendo sus OT, sin contar dos veces los traslapes; sin OT de preparación): días, % del período, ingresos, estadía más larga y si sigue en taller. Ordenado de más a menos días.',
     input_schema: { type: 'object', properties: { desde: { type: 'string' }, hasta: { type: 'string' }, sucursal: { type: 'string' }, limite: { type: 'integer' } } },
+  },
+  {
+    name: 'retrabajos',
+    description:
+      'Repuestos correctivos cambiados otra vez en el mismo vehículo en poco tiempo: posibles garantías (componentes repetidos en ≤ 90 días) y desgaste acelerado (piezas de desgaste en ≤ 30 días). Devuelve los componentes que más se repiten y los casos.',
+    input_schema: { type: 'object', properties: { desde: { type: 'string' }, hasta: { type: 'string' }, sucursal: { type: 'string' }, tipo: { type: 'string', enum: ['garantia', 'desgaste', 'todos'] }, limite: { type: 'integer' } } },
   },
   {
     name: 'comparar_sucursales',
@@ -547,6 +553,21 @@ function diasEnTaller(input) {
   }
 }
 
+function retrabajos(input) {
+  const branch = input.sucursal ? findBranch(input.sucursal) : null
+  if (input.sucursal && !branch) return { error: `No existe la sucursal "${input.sucursal}".` }
+  const { pairs, parts } = getRepeatRepairs(branch?.id ?? ALL_BRANCHES, { from: input.desde, to: input.hasta })
+  const kind = input.tipo === 'desgaste' ? 'wear' : input.tipo === 'todos' ? null : 'warranty'
+  const list = kind ? pairs.filter((p) => p.kind === kind) : pairs
+  const limit = limitOf(input, 25)
+  return {
+    casos: list.length,
+    costo_segundo_cambio: round(list.reduce((s, p) => s + p.cost, 0)),
+    componentes: parts.filter((r) => !kind || r.kind === kind).slice(0, 15).map((r) => ({ codigo: r.code, repuesto: r.part, veces: r.repeats, vehiculos: r.plates, dias_promedio: Math.round(r.avgDays), costo: round(r.cost), sucursales: r.branches })),
+    detalle: list.slice(0, limit).map((p) => ({ patente: p.plate, vehiculo: p.vehicle, repuesto: p.part, dias_entre: p.days, km_entre: p.km, ot: `${p.firstOrder} → ${p.secondOrder}`, fechas: `${p.firstDate} → ${p.secondDate}`, sucursal: p.branch, costo_segundo: round(p.cost) })),
+  }
+}
+
 function compararSucursales(input) {
   return {
     sucursales: getBranchComparison({ from: input.desde, to: input.hasta }).map((r) => ({
@@ -663,6 +684,7 @@ const STEP_LABEL = {
   ranking_gasto: 'Calculando ranking de gasto',
   comparar_sucursales: 'Comparando sucursales',
   dias_en_taller: 'Calculando días en taller',
+  retrabajos: 'Buscando re-trabajos y garantías',
   analisis_avanzado: 'Ejecutando análisis',
   mostrar_grafico: 'Preparando gráfico',
 }
@@ -712,6 +734,8 @@ export async function runTool(name, input, charts = []) {
       return compararSucursales(input)
     case 'dias_en_taller':
       return diasEnTaller(input)
+    case 'retrabajos':
+      return retrabajos(input)
     case 'analisis_avanzado':
       return analisisAvanzado(input)
     case 'mostrar_grafico': {
