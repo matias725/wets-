@@ -24,7 +24,7 @@ function loadScript() {
  * La cámara se describe en coordenadas esféricas alrededor del centro del
  * modelo, partiendo del encuadre que dejó el autor (Sketchfab usa Z hacia arriba).
  */
-export async function startSketchfab(iframe, uid, { timeout = 20000, distanceScale = 2.9 } = {}) {
+export async function startSketchfab(iframe, uid, { timeout = 20000, distanceScale = 2.9, options = {} } = {}) {
   const Sketchfab = await loadScript()
   const api = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Sketchfab no respondió a tiempo')), timeout)
@@ -50,6 +50,7 @@ export async function startSketchfab(iframe, uid, { timeout = 20000, distanceSca
       ui_watermark: 0,
       ui_watermark_link: 0,
       scrollwheel: 0,
+      ...options,
       success(api) {
         api.start()
         api.addEventListener('viewerready', () => {

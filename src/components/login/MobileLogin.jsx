@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { buildHilux, HEART, RADIUS } from './hilux'
-import { BONE, CSS, DISPLAY, GOLD, INK, LoginForm, SANS } from './HiluxShowcase'
+import { startSketchfab } from './sketchfab'
+import { BONE, CSS, DISPLAY, GOLD, INK, LoginForm, SANS, SKETCHFAB_UID } from './HiluxShowcase'
 import logoYellow from '@/assets/img/west_logo_yellow.png'
 
 /*
- * Ingreso para celular. La presentación de escritorio (visor de Sketchfab y seis
- * escenas que se mueven con el desplazamiento) es demasiado pesada para un
- * teléfono: aquí la Hilux modelada gira suave, sin sombras en tiempo real, a
- * ~30 cuadros por segundo y solo mientras la pantalla está visible.
+ * Ingreso para celular. La presentación de escritorio (seis escenas que mueven
+ * la cámara con el desplazamiento) es demasiado pesada para un teléfono: aquí la
+ * Hilux de Sketchfab va en un recuadro chico, quieta en vista de tres cuartos, y
+ * se gira con el dedo (en celulares Sketchfab siempre muestra "touch & drag",
+ * que desaparece al tocarla). Si Sketchfab no carga, se usa la camioneta
+ * modelada por código, a ~30 cuadros por segundo.
  */
 
 const hasWebGL = () => {
@@ -21,11 +24,11 @@ const hasWebGL = () => {
   }
 }
 
-function useHilux(canvasRef, paint) {
+function useHilux(canvasRef, paint, enabled) {
   const [failed] = useState(() => !hasWebGL())
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || failed) return undefined
+    if (!canvas || failed || !enabled) return undefined
     let renderer
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' })
@@ -102,13 +105,34 @@ function useHilux(canvasRef, paint) {
       env.dispose()
       renderer.dispose()
     }
-  }, [canvasRef, paint, failed])
+  }, [canvasRef, paint, failed, enabled])
   return failed
 }
 
 export default function MobileLogin({ stats, onLogin, paint = '#b9bcc1' }) {
   const canvasRef = useRef(null)
-  const failed = useHilux(canvasRef, paint)
+  const frameRef = useRef(null)
+  // loading → sketchfab (modelo real) · coded (respaldo si Sketchfab no responde)
+  const [mode, setMode] = useState(SKETCHFAB_UID ? 'loading' : 'coded')
+  const failed = useHilux(canvasRef, paint, mode === 'coded')
+
+  useEffect(() => {
+    if (!SKETCHFAB_UID || !frameRef.current) return undefined
+    let ctrl = null
+    let cancelled = false
+    startSketchfab(frameRef.current, SKETCHFAB_UID, { timeout: 15000, distanceScale: 1.85, options: { ui_hint: 0 } })
+      .then((c) => {
+        if (cancelled) return c.dispose()
+        ctrl = c
+        c.setView({ az: 0.15, el: 7, zoom: 1 }, performance.now() + 1000)
+        setMode('sketchfab')
+      })
+      .catch(() => !cancelled && setMode('coded'))
+    return () => {
+      cancelled = true
+      ctrl?.dispose()
+    }
+  }, [])
   return (
     <div
       style={{
@@ -124,9 +148,28 @@ export default function MobileLogin({ stats, onLogin, paint = '#b9bcc1' }) {
       <style>{CSS}</style>
       <img src={logoYellow} alt="West" style={{ height: 26, width: 'auto', alignSelf: 'flex-start' }} />
 
-      <div style={{ position: 'relative', height: 'min(36svh, 320px)', margin: '8px -22px 0' }}>
-        {!failed && <canvas ref={canvasRef} aria-hidden style={{ width: '100%', height: '100%', display: 'block' }} />}
+      <div style={{ position: 'relative', height: 'min(40svh, 360px)', margin: '8px -22px 0' }}>
+        {SKETCHFAB_UID && mode !== 'coded' && (
+          <iframe
+            ref={frameRef}
+            title="Toyota Hilux 3D · Sketchfab"
+            allow="autoplay; xr-spatial-tracking"
+            // se puede girar con el dedo (así también se va el aviso "touch & drag" del visor)
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, pointerEvents: mode === 'sketchfab' ? 'auto' : 'none', opacity: mode === 'sketchfab' ? 1 : 0, transition: 'opacity 1s ease' }}
+          />
+        )}
+        {mode === 'coded' && !failed && <canvas ref={canvasRef} aria-hidden style={{ width: '100%', height: '100%', display: 'block' }} />}
       </div>
+      {mode === 'sketchfab' && (
+        <a
+          href="https://sketchfab.com/3d-models/toyota-hilux-bev-2026-7cfe837686a049819a38afb490b6d2af"
+          target="_blank"
+          rel="noreferrer"
+          style={{ alignSelf: 'flex-end', fontSize: 9, letterSpacing: '0.06em', color: BONE, opacity: 0.4, textDecoration: 'none', margin: '2px 0 10px' }}
+        >
+          Modelo 3D: Toyota Hilux BEV 2026 · ROH3D · Sketchfab
+        </a>
+      )}
 
       <div style={{ textAlign: 'center', marginTop: -6 }}>
         <div style={{ fontSize: 10, letterSpacing: '0.34em', color: GOLD, textTransform: 'uppercase', fontWeight: 600 }}>Gestión de flota</div>

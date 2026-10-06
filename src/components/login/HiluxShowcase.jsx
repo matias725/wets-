@@ -28,7 +28,7 @@ const MODEL_URL = '/models/hilux.glb'
 const MODEL_CONFIG_URL = '/models/hilux.json' // { "rotateY": 180 } si el modelo mira hacia atrás
 // Modelo publicado en Sketchfab (se muestra con su visor oficial, sin descargarlo).
 // "Toyota Hilux BEV 2026" de ROH3D. Vacío ('') para no usarlo.
-const SKETCHFAB_UID = '7cfe837686a049819a38afb490b6d2af'
+export const SKETCHFAB_UID = '7cfe837686a049819a38afb490b6d2af'
 export const BONE = '#e9e3cf'
 export const GOLD = '#ffc400'
 export const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Impact, sans-serif'
