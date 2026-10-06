@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Clock, Download, Gauge, Receipt, TrendingUp } from 'lucide-react'
+import { Clock, Download, FileSpreadsheet, Gauge, Loader2, Receipt, TrendingUp } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { BRANCHES, TODAY, addDays, daysBetween, getExpenseRows, getVehicle, getVehicles, iso } from '@/data/api'
+import { BRANCHES, TODAY, addDays, daysBetween, getAvailableMonths, getExpenseRows, getMonthlyReport, getVehicle, getVehicles, iso } from '@/data/api'
 import { CATEGORY_BY_ID } from '@/data/catalog'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Field, Input } from '@/components/ui/Field'
+import { Field, Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/misc'
-import { clp, date, downloadCSV, pct } from '@/lib/format'
+import { clp, clpShort, date, downloadCSV, monthLong, num, pct } from '@/lib/format'
 
 function ReportCard({ icon: Icon, title, description, columns, rows, filename, delay }) {
   // preview: false => la columna va en el CSV pero no en la vista previa angosta
@@ -53,6 +53,66 @@ function ReportCard({ icon: Icon, title, description, columns, rows, filename, d
         {!rows.length && <div className="py-10 text-center text-sm text-muted">Sin datos en el período</div>}
       </div>
       {rows.length > 7 && <div className="border-t border-line px-5 py-2.5 text-xs text-muted">Vista previa: 7 de {rows.length} filas. El CSV incluye todas.</div>}
+    </Card>
+  )
+}
+
+// Informe mensual para gerencia: un Excel con resumen, sucursales, vehículos
+// que más gastan, OT abiertas y mantenciones por hacer.
+function MonthlyReportCard() {
+  const months = useMemo(() => getAvailableMonths(), [])
+  // Por defecto el último mes completo (el actual recién empieza).
+  const [month, setMonth] = useState(() => months.find((m) => m < iso(TODAY).slice(0, 7)) ?? months[0] ?? iso(TODAY).slice(0, 7))
+  const [busy, setBusy] = useState(false)
+  const report = useMemo(() => getMonthlyReport(month), [month])
+  const s = report.summary
+  const items = [
+    ['Gasto del mes', clpShort(s.spend)],
+    ['Preventivo', s.spend ? pct(s.preventive / s.spend) : '—'],
+    ['OT recibidas', num(s.received)],
+    ['OT cerradas', num(s.closed)],
+    ['Disponibilidad hoy', pct(s.availability)],
+    ['OT > 15 días hoy', num(s.stalledNow)],
+  ]
+  return (
+    <Card className="mb-4 overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 place-items-center rounded-xl bg-brand text-brand-ink">
+            <FileSpreadsheet size={18} />
+          </span>
+          <div>
+            <h2 className="text-[15px] font-semibold">Informe mensual para gerencia</h2>
+            <p className="mt-0.5 text-xs text-muted">Excel listo para enviar: resumen, gasto por sucursal y tipo, vehículos que más gastan, OT abiertas y mantenciones.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={month} onChange={(e) => setMonth(e.target.value)} options={months.map((m) => ({ value: m, label: monthLong(m) }))} className="w-48" aria-label="Mes del informe" />
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                const { downloadMonthlyReport } = await import('@/lib/monthlyReport')
+                await downloadMonthlyReport(report)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Descargar Excel
+          </Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-5 sm:grid-cols-3 lg:grid-cols-6">
+        {items.map(([label, value]) => (
+          <div key={label} className="rounded-xl bg-[var(--line)] px-3 py-2.5">
+            <div className="text-[11px] text-muted">{label}</div>
+            <div className="tabular mt-0.5 text-lg font-semibold">{value}</div>
+          </div>
+        ))}
+      </div>
     </Card>
   )
 }
@@ -120,7 +180,8 @@ export default function Reports() {
   const suffix = `${from}_a_${to}`
   return (
     <>
-      <PageHeader title="Reportes" description="Informes descargables en CSV (se abren directamente en Excel)" />
+      <PageHeader title="Reportes" description="Informe mensual en Excel e informes descargables en CSV" />
+      <MonthlyReportCard />
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Desde" id="r-from" className="w-44">

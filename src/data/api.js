@@ -38,7 +38,7 @@ try {
 // ser grande y porque representa datos reales, no gestión de la demo.
 const FLEET_KEY = isRealData ? 'westia.fleet.sap.v1' : 'westia.fleet.v1'
 const baseMeta = isRealData
-  ? { source: 'sap', count: BASE_VEHICLES.length, fileName: META.fileName, importedAt: META.generatedAt, from: META.from, to: META.to }
+  ? { source: 'sap', count: BASE_VEHICLES.length, fileName: META.fileName, importedAt: META.generatedAt, from: META.from, to: META.to, loadedFrom: META.loadedFrom ?? 'file' }
   : { source: 'demo', count: BASE_VEHICLES.length }
 let fleet = BASE_VEHICLES
 let fleetMeta = baseMeta
@@ -388,18 +388,185 @@ export function searchAll(query) {
   return results.slice(0, 12)
 }
 
+// ---------------------------------------------------------- alertas y rankings
+const isPreventiveLine = (l) => l.prev ?? PREVENTIVE_CODES.test(l.code)
+const inRange = (d, from, to) => Boolean(d) && (!from || d >= from) && (!to || d <= to)
+const ACCIDENT_TYPES = new Set(['DYP', 'Compañía de seguros'])
+// OT de preparación / equipamiento para un cliente o faena (grúas, kits mineros,
+// unidad nueva). Es inversión, no falla: no cuenta para sugerir la venta.
+const PREPARATION_RE = /\b(PREPARACI[OÓ]N|EQUIPAMIENTO|HABILITACI[OÓ]N|IMPLEMENTACI[OÓ]N|ALISTAMIENTO)\b/i
+const isPreparation = (o) => o.interventionType === 'Equipamiento unidades nuevas' || PREPARATION_RE.test(o.reason)
+
+/** OT abiertas con N días o más, con su responsable (el registrado o el sugerido de la sucursal). */
+export function getStalledOrders(branchId = ALL_BRANCHES, minDays = 15) {
+  return getOpenWorkOrders(branchId)
+    .filter((o) => o.daysOpen >= minDays)
+    .map((o) => ({
+      ...o,
+      owner: o.management.responsible || responsiblesFor(o.branchId)[0],
+      ownerSuggested: !o.management.responsible,
+    }))
+}
+
+/** Vehículos operativos a los que les toca (o ya se les pasó) la mantención preventiva. */
+export function getMaintenanceDue(branchId = ALL_BRANCHES, withinKm = 1000) {
+  return getVehicles(branchId)
+    .filter((v) => v.status !== 'out' && v.mileage > 0 && v.kmToMaintenance <= withinKm)
+    .sort((a, b) => a.kmToMaintenance - b.kmToMaintenance)
+}
+
+/**
+ * Gasto por vehículo en el período (OT recibidas entre from y to).
+ * advice: 'sell' (evaluar venta) · 'review' (revisar) · '' — comparando con el
+ * promedio de su categoría en toda la flota.
+ */
+export function getCostRanking(branchId = ALL_BRANCHES, { from, to } = {}) {
+  const map = new Map()
+  for (const o of WORK_ORDERS) {
+    if (!inRange(o.receivedDate, from, to)) continue
+    const v = vehicleByPlate(o.plate)
+    if (!v || v.status === 'sold' || v.status === 'out') continue
+    let r = map.get(o.plate)
+    if (!r) map.set(o.plate, (r = { plate: o.plate, v, orders: 0, correctiveOrders: 0, total: 0, preventive: 0, corrective: 0, accident: 0, preparation: 0, spend: 0 }))
+    r.orders += 1
+    r.total += o.totalCost
+    if (isPreparation(o)) {
+      r.preparation += o.totalCost
+      continue
+    }
+    r.spend += o.totalCost
+    if (ACCIDENT_TYPES.has(o.interventionType)) r.accident += o.totalCost
+    else o.lines.forEach((l) => (isPreventiveLine(l) ? (r.preventive += l.total) : (r.corrective += l.total)))
+    if (o.interventionType.includes('Correctiva')) r.correctiveOrders += 1
+  }
+  const all = [...map.values()]
+  const avg = {}
+  all.forEach((r) => {
+    const a = (avg[r.v.category] ??= { sum: 0, n: 0 })
+    a.sum += r.spend
+    a.n += 1
+  })
+  const year = TODAY.getFullYear()
+  return all
+    .filter((r) => inBranch(branchId)(r.v))
+    .map((r) => {
+      const ev = enrichVehicle(r.v)
+      const categoryAvg = avg[r.v.category].sum / avg[r.v.category].n
+      const ratio = categoryAvg ? r.spend / categoryAvg : 0
+      const age = r.v.year ? year - r.v.year : null
+      const worn = (age != null && age >= 4) || r.v.mileage >= 150_000
+      const advice = ratio >= 3 && worn ? 'sell' : ratio >= 3 || r.correctiveOrders >= 8 ? 'review' : ''
+      const { v: _v, ...rest } = r
+      return {
+        ...rest,
+        vehicle: `${ev.brand} ${ev.model}`,
+        year: r.v.year,
+        age,
+        mileage: r.v.mileage,
+        branchId: r.v.branchId,
+        branch: ev.branch,
+        category: ev.categoryLabel,
+        categoryAvg,
+        ratio,
+        costPerKm: r.v.mileage > 0 ? r.spend / r.v.mileage : 0,
+        advice,
+      }
+    })
+    .sort((a, b) => b.spend - a.spend || b.total - a.total)
+}
+
+/** Indicadores por sucursal para compararlas entre sí (no depende del filtro de sucursal). */
+export function getBranchComparison({ from, to } = {}) {
+  const spend = {}
+  for (const o of WORK_ORDERS) {
+    if (!o.branchId || !inRange(o.receivedDate, from, to)) continue
+    const s = (spend[o.branchId] ??= { orders: 0, total: 0, corrective: 0 })
+    s.orders += 1
+    s.total += o.totalCost
+    if (!ACCIDENT_TYPES.has(o.interventionType)) o.lines.forEach((l) => !isPreventiveLine(l) && (s.corrective += l.total))
+  }
+  return BRANCHES.map((b) => {
+    const list = fleet.filter((v) => v.branchId === b.id && v.status !== 'sold')
+    const workshop = list.filter((v) => v.status === 'workshop').length
+    const out = list.filter((v) => v.status === 'out').length
+    const open = getOpenWorkOrders(b.id)
+    const s = spend[b.id] ?? { orders: 0, total: 0, corrective: 0 }
+    return {
+      branchId: b.id,
+      branch: b.name,
+      vehicles: list.length,
+      workshop,
+      availability: list.length ? (list.length - workshop - out) / list.length : null,
+      orders: s.orders,
+      total: s.total,
+      corrective: s.corrective,
+      perVehicle: list.length ? s.total / list.length : null,
+      openOrders: open.length,
+      avgDays: open.length ? open.reduce((x, o) => x + o.daysOpen, 0) / open.length : null,
+      stalled: open.filter((o) => o.daysOpen >= 15).length,
+    }
+  }).filter((r) => r.vehicles || r.orders)
+}
+
+/** Meses con OT (AAAA-MM), del más reciente al más antiguo. */
+export function getAvailableMonths() {
+  const set = new Set()
+  WORK_ORDERS.forEach((o) => {
+    if (o.receivedDate) set.add(o.receivedDate.slice(0, 7))
+    if (o.closedDate) set.add(o.closedDate.slice(0, 7))
+  })
+  return [...set].sort().reverse()
+}
+
+/** Datos del informe mensual para gerencia. */
+export function getMonthlyReport(month) {
+  const from = `${month}-01`
+  const to = `${month}-31`
+  const received = WORK_ORDERS.filter((o) => inRange(o.receivedDate, from, to))
+  const closed = WORK_ORDERS.filter((o) => !ACTIVE_SAP_STATUS.has(o.sapStatus) && inRange(o.closedDate, from, to))
+  const expenses = getExpenseRows(ALL_BRANCHES).filter((e) => e.month === month)
+  const vehicles = getVehicles(ALL_BRANCHES)
+  const down = vehicles.filter((v) => v.status === 'workshop' || v.status === 'out').length
+  const open = getOpenWorkOrders(ALL_BRANCHES)
+  const byType = {}
+  expenses.forEach((e) => (byType[e.interventionType] = (byType[e.interventionType] ?? 0) + e.total))
+  return {
+    month,
+    generatedAt: iso(TODAY),
+    source: META.source === 'sap' ? META.fileName : 'Datos de demostración',
+    summary: {
+      fleet: vehicles.length,
+      availability: vehicles.length ? (vehicles.length - down) / vehicles.length : 0,
+      received: received.length,
+      closed: closed.length,
+      spend: expenses.reduce((s, e) => s + e.total, 0),
+      preventive: expenses.reduce((s, e) => s + e.preventive, 0),
+      corrective: expenses.reduce((s, e) => s + e.corrective, 0),
+      openNow: open.length,
+      stalledNow: open.filter((o) => o.daysOpen >= 15).length,
+    },
+    byType: Object.entries(byType).map(([type, total]) => ({ type, total })).sort((a, b) => b.total - a.total),
+    branches: getBranchComparison({ from, to }).sort((a, b) => b.total - a.total),
+    topVehicles: getCostRanking(ALL_BRANCHES, { from, to }).slice(0, 20),
+    open,
+    maintenance: getMaintenanceDue(ALL_BRANCHES, 1000),
+  }
+}
+
 // --------------------------------------------------------------- notificaciones
 export function getNotifications(branchId = ALL_BRANCHES) {
   const open = getOpenWorkOrders(branchId)
   const list = []
   const overdue = open.filter((o) => o.flags.overdue)
   if (overdue.length) list.push({ id: 'overdue', tone: 'danger', title: `${overdue.length} compromisos vencidos`, detail: 'OT con fecha de compromiso cumplida y unidad aún detenida', to: '/ot?filtro=overdue' })
-  const long = open.filter((o) => o.daysOpen > 20)
-  if (long.length) list.push({ id: 'long', tone: 'danger', title: `${long.length} unidades con más de 20 días`, detail: 'Revisar causa de permanencia en taller', to: '/ot?filtro=gt20' })
+  const long = open.filter((o) => o.daysOpen > 30)
+  if (long.length) list.push({ id: 'long', tone: 'danger', title: `${long.length} unidades con más de 30 días en taller`, detail: 'Ver responsables por sucursal', to: '/alertas?vista=ot' })
   const noMg = open.filter((o) => o.flags.noManagement)
   if (noMg.length) list.push({ id: 'nomg', tone: 'warning', title: `${noMg.length} OT sin gestión`, detail: 'Sin responsable, prioridad ni estado real', to: '/ot?filtro=noManagement' })
   const maint = fleet.filter(inBranch(branchId)).filter((v) => v.status !== 'sold' && v.mileage > 0 && v.nextMaintenanceKm - v.mileage < 0)
-  if (maint.length) list.push({ id: 'maint', tone: 'warning', title: `${maint.length} mantenciones vencidas por kilometraje`, detail: 'Programar ingreso preventivo', to: '/flota?mantencion=vencida' })
+  if (maint.length) list.push({ id: 'maint', tone: 'warning', title: `${maint.length} mantenciones vencidas por kilometraje`, detail: 'Programar ingreso preventivo', to: '/alertas?vista=mant' })
+  const highCost = getCostRanking(branchId, { from: `${TODAY.getFullYear()}-01-01` }).filter((r) => r.advice === 'sell')
+  if (highCost.length) list.push({ id: 'sell', tone: 'warning', title: `${highCost.length} vehículos para evaluar venta`, detail: 'Gasto del año muy sobre el promedio de su categoría', to: '/alertas?vista=gasto' })
   const docs = fleet.filter(inBranch(branchId)).flatMap((v) => (v.documents ?? []).filter((d) => d.expiresAt < iso(TODAY)))
   if (docs.length) list.push({ id: 'docs', tone: 'danger', title: `${docs.length} documentos vencidos`, detail: 'Revisión técnica, permiso, SOAP o seguro', to: '/flota?documentos=vencidos' })
   return list

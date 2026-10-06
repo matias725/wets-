@@ -39,7 +39,8 @@ export default function OpenWorkOrders() {
   const [client, setClient] = useState('all')
   const [type, setType] = useState('all')
   const [priority, setPriority] = useState('all')
-  const [selected, setSelected] = useState(null)
+  // ?ot=NÚMERO abre directamente la gestión de esa OT (enlace desde Alertas).
+  const [selected, setSelected] = useState(() => all.find((o) => o.workOrder === params.get('ot')) ?? null)
 
   const view = params.get('vista') === 'tablero' ? 'board' : 'table'
   const filterParam = params.get('filtro') ?? ''

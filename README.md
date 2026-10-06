@@ -93,13 +93,29 @@ Foto de inicio: Unsplash (licencia libre).
 
 ## Cargar la flota real desde SAP
 
-1. Exportar el Excel completo del SAP (hojas de OT y maestro de vehículos).
-2. Ejecutar:
-   ```
-   python scripts/convertir_sap.py "C:\ruta\SAP COMPLETO.xlsx"
-   ```
-   Esto genera `public/data/west-real.json`. La web lo carga sola al abrir; si no existe, se muestra la versión de demostración.
-3. Para actualizar los datos, se vuelve a ejecutar el mismo comando con el Excel nuevo.
+**Desde la página (recomendado):** Flota → **Cargar Excel del SAP** → elegir el Excel completo
+(hoja de OT + maestro de vehículos). Se procesa en el mismo navegador en pocos segundos,
+queda guardado ahí (IndexedDB) y la página se actualiza. El archivo no se envía a ningún servidor.
+Para quitarlo: botón **Quitar datos cargados** en Flota.
+
+**Por comando (opcional):**
+```
+python scripts/convertir_sap.py "C:utaSAP COMPLETO.xlsx"
+```
+genera `public/data/west-real.json`, que la web carga al abrir. Si existen ambos, se usa el más reciente.
 
 > Los datos reales **no se suben a GitHub** (`public/data/` está en `.gitignore`).
 > Los vehículos usados o en venta aparecen en Flota, pero no cuentan en los indicadores.
+
+## Alertas y rankings
+
+- **OT estancadas:** más de 15 / 30 días en taller, con responsable (el de la gestión o el sugerido de la sucursal).
+- **Mantenciones:** vehículos a 1.000 km o menos de su próxima preventiva, y las vencidas.
+- **Gasto por vehículo:** ranking del período con sugerencia *Evaluar venta* / *Revisar*. La preparación
+  o equipamiento para clientes y faenas se muestra aparte y no cuenta para la sugerencia.
+- **Sucursales:** disponibilidad, días en taller, OT > 15 días y gasto por vehículo, comparadas entre sí.
+
+## Informe mensual
+
+Reportes → **Informe mensual para gerencia** → elegir el mes → **Descargar Excel**
+(resumen, sucursales, vehículos que más gastan, OT abiertas y mantenciones).

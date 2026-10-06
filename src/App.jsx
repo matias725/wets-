@@ -13,6 +13,7 @@ const VehicleDetail = lazy(() => import('@/pages/VehicleDetail'))
 const Visits = lazy(() => import('@/pages/Visits'))
 const Expenses = lazy(() => import('@/pages/Expenses'))
 const Health = lazy(() => import('@/pages/Health'))
+const Alerts = lazy(() => import('@/pages/Alerts'))
 const Analyst = lazy(() => import('@/pages/Analyst'))
 const Reports = lazy(() => import('@/pages/Reports'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
@@ -61,6 +62,7 @@ export default function App() {
               ['/flota/:plate', VehicleDetail],
               ['/visitas', Visits],
               ['/gastos', Expenses],
+              ['/alertas', Alerts],
               ['/salud', Health],
               ['/analista', Analyst],
               ['/reportes', Reports],

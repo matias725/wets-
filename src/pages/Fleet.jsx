@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Download, FileSpreadsheet, RotateCcw, Upload, X } from 'lucide-react'
+import { Database, Download, FileSpreadsheet, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { ALL_BRANCHES, TODAY, getFleetMeta, getVehicles, iso, resetFleet } from '@/data/api'
+import { ALL_BRANCHES, TODAY, getFleetMeta, getVehicles, isRealData, iso, resetFleet } from '@/data/api'
 import { CATEGORIES, VEHICLE_STATUS } from '@/data/catalog'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -14,6 +14,8 @@ import { PageHeader, SearchInput } from '@/components/ui/misc'
 import { cx, date, downloadCSV, km, num } from '@/lib/format'
 import { exportFleetExcel } from '@/lib/fleetExcel'
 import { ImportFleetModal } from '@/components/fleet/ImportFleetModal'
+import { SapImportModal } from '@/components/fleet/SapImportModal'
+import { clearSapData } from '@/lib/sapStore'
 
 function MaintenanceCell({ v }) {
   if (!v.mileage) return <div className="text-right text-xs text-muted">Sin registro</div>
@@ -39,6 +41,7 @@ export default function Fleet() {
   const [transmission, setTransmission] = useState('all')
   const [fuel, setFuel] = useState('all')
   const [importing, setImporting] = useState(false)
+  const [loadingSap, setLoadingSap] = useState(false)
   const [exporting, setExporting] = useState(false)
   const meta = useData(() => getFleetMeta())
   const allVehicles = useData(() => getVehicles(ALL_BRANCHES, { includeSold: true }))
@@ -161,8 +164,11 @@ export default function Fleet() {
             >
               <FileSpreadsheet size={16} /> {exporting ? 'Generando…' : 'Exportar Excel'}
             </Button>
-            <Button variant="primary" onClick={() => setImporting(true)}>
-              <Upload size={16} /> Importar Excel
+            <Button onClick={() => setImporting(true)} title="Actualizar vehículos con la plantilla de flota">
+              <Upload size={16} /> Importar plantilla
+            </Button>
+            <Button variant="primary" onClick={() => setLoadingSap(true)}>
+              <Database size={16} /> Cargar Excel del SAP
             </Button>
           </>
         }
@@ -180,23 +186,38 @@ export default function Fleet() {
             variant="ghost"
             size="sm"
             onClick={() => {
-              if (window.confirm('¿Volver a la flota de demostración? La flota importada se quitará de este navegador.')) resetFleet()
+              if (window.confirm(`¿Quitar la flota importada? Se volverá a ${isRealData ? 'los datos del SAP' : 'la flota de demostración'}.`)) resetFleet()
             }}
           >
-            <RotateCcw size={14} /> Volver a datos de demostración
+            <RotateCcw size={14} /> {isRealData ? 'Volver a los datos del SAP' : 'Volver a datos de demostración'}
           </Button>
         </div>
       ) : meta.source === 'sap' ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-brand/25 bg-brand/10 px-4 py-3 text-sm">
-          <FileSpreadsheet size={18} className="shrink-0 text-brand-text" />
-          <span>
-            Flota real cargada desde <b>{meta.fileName}</b> · {num(allVehicles.length)} vehículos · OT desde el {date(meta.from)} al {date(meta.to)}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/25 bg-brand/10 px-4 py-3 text-sm">
+          <span className="flex items-center gap-2">
+            <Database size={18} className="shrink-0 text-brand-text" />
+            <span>
+              Datos del SAP: <b>{meta.fileName}</b>, cargado el {date(meta.importedAt?.slice(0, 10))} · {num(allVehicles.length)} vehículos · OT del {date(meta.from)} al {date(meta.to)}
+            </span>
           </span>
+          {meta.loadedFrom === 'browser' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                if (!window.confirm('¿Quitar el Excel del SAP cargado en este navegador?')) return
+                await clearSapData()
+                window.location.reload()
+              }}
+            >
+              <Trash2 size={14} /> Quitar datos cargados
+            </Button>
+          )}
         </div>
       ) : (
         <div className="mb-4 flex items-center gap-2 rounded-2xl bg-[var(--line)] px-4 py-3 text-xs text-muted">
           <FileSpreadsheet size={16} className="shrink-0 text-brand-text" />
-          Mostrando la flota de demostración. Use “Importar Excel” para cargar la flota real.
+          Mostrando la flota de demostración. Use “Cargar Excel del SAP” para cargar los datos reales.
         </div>
       )}
 
@@ -244,6 +265,7 @@ export default function Fleet() {
         <DataTable data={rows} columns={columns} onRowClick={(v) => navigate(`/flota/${v.plate}`)} pageSize={15} initialSort={[{ id: 'plate', desc: false }]} />
       </Card>
       <ImportFleetModal open={importing} onClose={() => setImporting(false)} />
+      <SapImportModal open={loadingSap} onClose={() => setLoadingSap(false)} />
     </>
   )
 }
