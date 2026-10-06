@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Database, Download, FileSpreadsheet, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { Camera, Database, Download, FileSpreadsheet, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import { useData } from '@/hooks/useData'
 import { ALL_BRANCHES, TODAY, getFleetMeta, getVehicles, isRealData, iso, resetFleet } from '@/data/api'
 import { CATEGORIES, VEHICLE_STATUS } from '@/data/catalog'
@@ -16,6 +16,8 @@ import { exportFleetExcel } from '@/lib/fleetExcel'
 import { exportFleet } from '@/lib/excel/exports'
 import { ImportFleetModal } from '@/components/fleet/ImportFleetModal'
 import { SapImportModal } from '@/components/fleet/SapImportModal'
+import { FleetPhotoModal } from '@/components/fleet/FleetPhotoModal'
+import { photoUrl, useFleetPhotos } from '@/lib/fleetPhotos'
 import { clearSapData } from '@/lib/sapStore'
 import { toast } from 'sonner'
 
@@ -45,6 +47,8 @@ export default function Fleet() {
   const [importing, setImporting] = useState(false)
   const [loadingSap, setLoadingSap] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [addingPhotos, setAddingPhotos] = useState(false)
+  const photos = useFleetPhotos()
   const meta = useData(() => getFleetMeta())
   const allVehicles = useData(() => getVehicles(ALL_BRANCHES, { includeSold: true }))
   const maintenanceDue = params.get('mantencion') === 'vencida'
@@ -86,7 +90,19 @@ export default function Fleet() {
 
   const columns = useMemo(
     () => [
-      { accessorKey: 'plate', header: 'Patente', cell: (c) => <span className="font-semibold">{c.getValue()}</span> },
+      {
+        accessorKey: 'plate',
+        header: 'Patente',
+        cell: (c) => {
+          const photo = photos[c.getValue()]?.at(-1)
+          return (
+            <span className="flex items-center gap-2.5">
+              {photo && <img src={photoUrl(photo.file)} alt="" loading="lazy" className="size-8 shrink-0 rounded-md object-cover" />}
+              <span className="font-semibold">{c.getValue()}</span>
+            </span>
+          )
+        },
+      },
       {
         id: 'model',
         accessorFn: (v) => `${v.brand} ${v.model}`,
@@ -125,7 +141,7 @@ export default function Fleet() {
       { accessorKey: 'mileage', header: 'Kilometraje', cell: (c) => (c.getValue() ? km(c.getValue()) : '—'), meta: { align: 'right' } },
       { accessorKey: 'kmToMaintenance', header: 'Mantención', cell: ({ row: { original: v } }) => <MaintenanceCell v={v} />, meta: { align: 'right' } },
     ],
-    [hasTransmission],
+    [hasTransmission, photos],
   )
 
   const exportReport = () => exportFleet(rows, { filters: rows.length === vehicles.length ? 'toda la flota' : `${rows.length} de ${vehicles.length} vehículos (filtros aplicados)` })
@@ -154,6 +170,9 @@ export default function Fleet() {
               title="Exportar lo filtrado en Excel (se puede volver a importar)"
             >
               <FileSpreadsheet size={16} /> {exporting ? 'Generando…' : 'Excel editable'}
+            </Button>
+            <Button onClick={() => setAddingPhotos(true)} title="Subir fotos: la patente se lee sola y la foto queda en la ficha del vehículo">
+              <Camera size={16} /> Subir fotos
             </Button>
             <Button onClick={() => setImporting(true)} title="Actualizar vehículos con la plantilla de flota">
               <Upload size={16} /> Importar plantilla
@@ -257,6 +276,7 @@ export default function Fleet() {
       </Card>
       <ImportFleetModal open={importing} onClose={() => setImporting(false)} />
       <SapImportModal open={loadingSap} onClose={() => setLoadingSap(false)} />
+      <FleetPhotoModal open={addingPhotos} onClose={() => setAddingPhotos(false)} />
     </>
   )
 }

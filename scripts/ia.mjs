@@ -19,6 +19,22 @@ const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434'
 // el primero instalado; qwen2.5 queda de respaldo mientras se descarga qwen3
 const LOCAL_MODELS = process.env.WEST_LOCAL_MODEL ? [process.env.WEST_LOCAL_MODEL] : ['qwen3:14b', 'qwen2.5:latest']
 const LOCAL_CTX = 24_576
+// visión local para leer patentes en fotos (el modelo de texto no ve imágenes)
+const LOCAL_VISION = process.env.WEST_LOCAL_VISION ? [process.env.WEST_LOCAL_VISION] : ['qwen3-vl:8b', 'qwen2.5vl:7b']
+const PLATE_PROMPT = `Esta es una foto de un vehículo de una empresa chilena de arriendo de camionetas.
+Lee la patente (placa) chilena si se ve. Formatos: 4 letras + 2 números (ej. SYPT-52, sin vocales) o 2 letras + 4 números (ej. CL-1234). La de motos tiene 3 letras + 2 números.
+Copia los caracteres tal como se ven, sin inventar. Si se ve solo en parte o no se ve, dilo con visible=false o confidence="baja".
+Responde solo con el JSON pedido.`
+const PLATE_SCHEMA = {
+  type: 'object',
+  properties: {
+    visible: { type: 'boolean', description: 'true si se ve una patente legible' },
+    plate: { type: 'string', description: 'La patente leída, solo letras y números, o vacío' },
+    confidence: { type: 'string', enum: ['alta', 'media', 'baja'] },
+  },
+  required: ['visible', 'plate', 'confidence'],
+  additionalProperties: false,
+}
 const MAX_BODY = 25 * 1024 * 1024
 
 export function createIaHandler({ root, dataDir, log }) {
@@ -208,6 +224,70 @@ export function createIaHandler({ root, dataDir, log }) {
     return { content, stop_reason: calls.length ? 'tool_use' : data.done_reason === 'length' ? 'max_tokens' : 'end_turn', usd: 0 }
   }
 
+  // ------------------------------------------------------ patente de una foto
+  async function readPlate({ image, mediaType }) {
+    if (!image || typeof image !== 'string') throw Object.assign(new Error('Falta la imagen'), { status: 400 })
+    if (readProvider() === 'claude' && getClient()) {
+      const msg = await getClient().beta.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 2000,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: PLATE_SCHEMA } },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
+              { type: 'text', text: PLATE_PROMPT },
+            ],
+          },
+        ],
+      })
+      const usd = addUsage(msg.usage)
+      if (msg.stop_reason === 'refusal') return { visible: false, plate: '', confidence: 'baja', engine: 'Claude', usd }
+      const text = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('')
+      return { ...JSON.parse(text), engine: 'Claude', usd }
+    }
+    let names = new Set()
+    try {
+      const { models = [] } = await (await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(2000) })).json()
+      names = new Set(models.map((m) => m.name))
+    } catch {
+      throw Object.assign(new Error('La IA local (Ollama) no está abierta en este computador.'), { status: 503 })
+    }
+    const model = LOCAL_VISION.find((n) => names.has(n))
+    if (!model) throw Object.assign(new Error(`Falta descargar el modelo de visión ${LOCAL_VISION[0]} para leer patentes.`), { status: 503 })
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        think: false,
+        keep_alive: '10m',
+        format: PLATE_SCHEMA,
+        options: { temperature: 0 },
+        messages: [{ role: 'user', content: PLATE_PROMPT, images: [image] }],
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw Object.assign(new Error(`IA local: ${data.error || `Error ${res.status}`}`), { status: 502 })
+    // qwen3-vl a veces deja el JSON en "thinking" en vez de "content"
+    let out = {}
+    for (const raw of [data.message?.content, data.message?.thinking]) {
+      const found = String(raw ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').match(/\{[^{}]*"plate"[^{}]*\}/g)
+      if (!found) continue
+      try {
+        out = JSON.parse(found.at(-1))
+        break
+      } catch {
+        /* se prueba el otro campo */
+      }
+    }
+    return { visible: Boolean(out.visible), plate: String(out.plate ?? ''), confidence: out.confidence ?? 'baja', engine: 'IA local', usd: 0 }
+  }
+
   /** Devuelve true si atendió la ruta. */
   return async function handle(req, res, pathname) {
     if (!pathname.startsWith('/api/ia/')) return false
@@ -266,6 +346,10 @@ export function createIaHandler({ root, dataDir, log }) {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...readJson(CONFIG_FILE), provider: 'claude' }))
         log('Analista IA: clave de Anthropic configurada.')
         json(res, 200, { configured: true })
+        return true
+      }
+      if (route === 'patente' && req.method === 'POST') {
+        json(res, 200, await readPlate(await readBody(req)))
         return true
       }
       if (route === 'mensaje' && req.method === 'POST') {

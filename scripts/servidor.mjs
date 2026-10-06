@@ -19,6 +19,7 @@ import { detectKind, parseGestion, parsePartsCatalog } from '../src/lib/sapExtra
 import { extractPhotos } from './fotos.mjs'
 import { createIaHandler } from './ia.mjs'
 import { createWebStateHandler } from './estadoWeb.mjs'
+import { createFleetPhotoHandler } from './fotosFlota.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DIST = path.join(ROOT, 'dist')
@@ -233,7 +234,7 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
   '.webmanifest': 'application/manifest+json',
 }
-const DATA_FILES = new Set(['west-real.json', 'estado.json', 'gestion.json'])
+const DATA_FILES = new Set(['west-real.json', 'estado.json', 'gestion.json', 'fotos-flota.json'])
 
 // Texto comprimido (gzip): los datos del SAP pasan de ~9 MB a ~1 MB, clave en el celular.
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.webmanifest', '.txt'])
@@ -266,6 +267,7 @@ function send(req, res, file, cache) {
 
 const handleIa = createIaHandler({ root: ROOT, dataDir: DATA, log })
 const handleWebState = createWebStateHandler({ dataDir: DATA, log, stamp: localStamp })
+const handleFleetPhotos = createFleetPhotoHandler({ dataDir: DATA, log, stamp: localStamp })
 
 const server = http.createServer((req, res) => {
   handleRequest(req, res).catch((e) => {
@@ -285,11 +287,13 @@ async function handleRequest(req, res) {
   }
   if (await handleIa(req, res, pathname)) return
   if (await handleWebState(req, res, pathname)) return
+  if (await handleFleetPhotos(req, res, pathname)) return
   if (pathname.startsWith('/data/')) {
     const name = pathname.slice(6)
     const file = path.join(DATA, name)
     if (DATA_FILES.has(name) && fs.existsSync(file)) return send(req, res, file, 'no-cache')
     if (/^fotos\/[\w-]+\.(jpe?g|png|gif|webp)$/i.test(name) && fs.existsSync(file)) return send(req, res, file, 'public, max-age=3600')
+    if (/^fotos-flota\/[\w-]+\.jpg$/i.test(name) && fs.existsSync(file)) return send(req, res, file, 'public, max-age=31536000, immutable')
     res.writeHead(404).end()
     return
   }

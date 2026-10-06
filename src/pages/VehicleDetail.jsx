@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, CarFront, ChevronDown, FileText, Gauge, Hammer, History, Receipt, ShieldAlert, Wrench } from 'lucide-react'
+import { ArrowLeft, Camera, CarFront, ChevronDown, Loader2, Trash2, FileText, Gauge, Hammer, History, Receipt, ShieldAlert, Wrench } from 'lucide-react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useData } from '@/hooks/useData'
 import { getOpenWorkOrders, getVehicle, ALL_BRANCHES, META, isRealData } from '@/data/api'
@@ -17,8 +17,72 @@ import { ManagementDrawer } from '@/components/ot/ManagementDrawer'
 import { ShareImageButtons } from '@/components/ui/ShareImageButtons'
 import { clp, clpShort, cx, date, km, num } from '@/lib/format'
 import pickupPhoto from '@/assets/img/camioneta-4x4.jpg'
+import { deletePhoto, photoUrl, savePhoto, toJpeg, useFleetPhotos } from '@/lib/fleetPhotos'
+import { toast } from 'sonner'
 
 const dataSource = () => (META.source === 'sap' ? `datos SAP al ${date(META.to)}` : 'datos de demostración')
+
+/** Fotos del vehículo: la más nueva grande, miniaturas para cambiar, agregar y borrar. */
+function VehiclePhotos({ plate, fallback }) {
+  const list = useFleetPhotos()[plate] ?? []
+  const [picked, setPicked] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef(null)
+  const current = list.find((p) => p.file === picked) ?? list.at(-1)
+
+  async function add(files) {
+    setBusy(true)
+    try {
+      for (const f of [...files].filter((x) => x.type.startsWith('image/'))) {
+        const { base64 } = await toJpeg(f)
+        const entry = await savePhoto(plate, base64)
+        setPicked(entry.file)
+      }
+    } catch (e) {
+      toast.error('No se pudo guardar la foto', { description: e.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function remove() {
+    if (!current || !window.confirm('¿Borrar esta foto del vehículo?')) return
+    try {
+      await deletePhoto(current.file)
+      setPicked(null)
+    } catch (e) {
+      toast.error('No se pudo borrar la foto', { description: e.message })
+    }
+  }
+
+  return (
+    <div className="relative min-h-56 overflow-hidden">
+      {current ? <img src={photoUrl(current.file)} alt={`Foto de ${plate}`} className="absolute inset-0 size-full object-cover" /> : fallback}
+      <div className="absolute top-3 right-3 flex gap-2">
+        {current && (
+          <button type="button" onClick={remove} title="Borrar esta foto" className="grid size-9 place-items-center rounded-lg bg-black/50 text-white/90 backdrop-blur transition hover:bg-black/70">
+            <Trash2 size={16} />
+          </button>
+        )}
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="flex h-9 items-center gap-1.5 rounded-lg bg-black/50 px-3 text-xs font-medium text-white backdrop-blur transition hover:bg-black/70">
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />} {list.length ? 'Agregar foto' : 'Subir foto'}
+        </button>
+        <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => (add(e.target.files), (e.target.value = ''))} />
+      </div>
+      {current && (
+        <span className="absolute bottom-3 left-3 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white/80 backdrop-blur">Foto del {date(current.at.slice(0, 10))}</span>
+      )}
+      {list.length > 1 && (
+        <div className="absolute right-3 bottom-3 flex max-w-[70%] gap-1.5 overflow-x-auto">
+          {list.map((p) => (
+            <button key={p.file} type="button" onClick={() => setPicked(p.file)} className={cx('size-11 shrink-0 overflow-hidden rounded-md ring-2 transition', p.file === current?.file ? 'ring-white' : 'ring-transparent opacity-70 hover:opacity-100')}>
+              <img src={photoUrl(p.file)} alt="" loading="lazy" className="size-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function OTRow({ o }) {
   const [open, setOpen] = useState(false)
@@ -116,18 +180,21 @@ export default function VehicleDetail() {
 
       <Card className="overflow-hidden">
         <div className="grid md:grid-cols-[minmax(0,420px)_1fr]">
-          <div className="relative min-h-56 overflow-hidden">
-            {showPhoto ? (
-              <>
-                <img src={pickupPhoto} alt="Imagen referencial del vehículo" className="absolute inset-0 size-full object-cover" />
-                <span className="absolute bottom-3 left-3 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white/80 backdrop-blur">Imagen referencial</span>
-              </>
-            ) : (
-              <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-brand/25 via-transparent to-sky-500/20">
-                <CarFront size={96} strokeWidth={1} className="text-brand-text/70" />
-              </div>
-            )}
-          </div>
+          <VehiclePhotos
+            plate={v.plate}
+            fallback={
+              showPhoto ? (
+                <>
+                  <img src={pickupPhoto} alt="Imagen referencial del vehículo" className="absolute inset-0 size-full object-cover" />
+                  <span className="absolute bottom-3 left-3 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white/80 backdrop-blur">Imagen referencial</span>
+                </>
+              ) : (
+                <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-brand/25 via-transparent to-sky-500/20">
+                  <CarFront size={96} strokeWidth={1} className="text-brand-text/70" />
+                </div>
+              )
+            }
+          />
           <div className="p-6">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-tight">{v.plate}</h1>
