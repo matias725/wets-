@@ -24,7 +24,7 @@ npm run lint     # revisión del código
 
 ## Presentación de ingreso
 
-La pantalla de ingreso es una presentación 3D guiada por el desplazamiento: una Toyota Hilux 2024 plateada (parrilla de panal, focos LED, barra deportiva, llantas de 6 rayos) modelada por código con three.js, en seis cuadros: portada, vista desde arriba, datos de la flota, Flota · Taller · Gastos, "cada kilómetro bajo control" y el formulario. Arrastrando se gira la camioneta. Los botones **Ingresar** y **Saltar intro** van directo al formulario, y quien ya la vio entra directo al formulario las siguientes veces. Respeta la preferencia de "reducir movimiento" del sistema. Por defecto se muestra el modelo **Toyota Hilux BEV 2026 de ROH3D** con el visor oficial de Sketchfab (sin descargarlo; la cámara del visor sigue la misma coreografía). Si Sketchfab no carga, aparece la camioneta modelada por código. Para usar un **modelo 3D propio** de la Hilux, copie un archivo `hilux.glb` en `public/models/` (instrucciones en `public/models/LEEME.txt`); reemplaza automáticamente a la camioneta modelada por código. Código en `src/components/login/` (`hilux.js` modela la camioneta; `HiluxShowcase.jsx` la escena y los textos).
+La pantalla de ingreso (`src/components/login/LoginScreen.jsx`) muestra una foto de la Toyota Hilux, los datos de la flota y el formulario: en el computador la foto va a la izquierda y el formulario a la derecha; en el celular la foto va arriba. La foto de Toyota está en `public/local/login-hero.jpg`, fuera de git por derechos de autor; si falta, se usa `src/assets/img/camioneta-4x4.jpg`.
 
 ## Pantallas
 
