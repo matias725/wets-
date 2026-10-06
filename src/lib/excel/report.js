@@ -142,6 +142,13 @@ function styledTable(ws, startRow, columns, rows, { filter = true, totals = true
       cell.alignment = { vertical: 'middle', wrapText: Boolean(c.wrap) }
       cell.border = { bottom: { style: 'hair', color: { argb: LINE } } }
       if (j % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ZEBRA } }
+      if (c.list) {
+        // celda para completar: lista desplegable y fondo amarillo claro
+        cell.dataValidation = { type: 'list', allowBlank: true, showErrorMessage: true, errorTitle: 'Valor no válido', error: `Elija: ${c.list.join(', ')}`, formulae: [`"${c.list.join(',')}"`] }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7D6' } }
+        cell.border = { bottom: { style: 'hair', color: { argb: LINE } }, left: { style: 'thin', color: { argb: 'FFE0C200' } }, right: { style: 'thin', color: { argb: 'FFE0C200' } } }
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } }
+      }
     })
   })
   const first = startRow + 1

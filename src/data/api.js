@@ -586,6 +586,54 @@ export function getBranchComparison({ from, to } = {}) {
   }).filter((r) => r.vehicles || r.orders)
 }
 
+/**
+ * Códigos de repuesto / servicio que no están en ningún catálogo de repuestos,
+ * agrupados y ordenados por monto (para clasificarlos).
+ */
+export function getUnclassifiedParts() {
+  const map = new Map()
+  let total = 0
+  for (const o of WORK_ORDERS) {
+    for (const l of o.lines) {
+      if (l.cls) continue
+      const key = String(l.code ?? '').toUpperCase().replace(/\s+/g, '')
+      let r = map.get(key)
+      if (!r) map.set(key, (r = { code: l.code, descriptions: {}, amount: 0, qty: 0, lines: 0, orders: new Set(), plates: new Set(), models: {}, types: {}, last: '' }))
+      r.descriptions[l.description] = (r.descriptions[l.description] ?? 0) + 1
+      r.amount += l.total
+      r.qty += l.qty || 0
+      r.lines += 1
+      r.orders.add(o.workOrder)
+      r.plates.add(o.plate)
+      const v = vehicleByPlate(o.plate)
+      if (v) r.models[`${v.brand} ${v.model}`] = (r.models[`${v.brand} ${v.model}`] ?? 0) + 1
+      r.types[o.interventionType] = (r.types[o.interventionType] ?? 0) + 1
+      if ((o.receivedDate ?? '') > r.last) r.last = o.receivedDate
+      total += l.total
+    }
+  }
+  const top = (obj, n = 1) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k)
+  let acc = 0
+  return [...map.values()]
+    .sort((a, b) => b.amount - a.amount)
+    .map((r) => {
+      acc += r.amount
+      return {
+        code: r.code,
+        description: top(r.descriptions)[0] ?? '',
+        amount: r.amount,
+        qty: r.qty,
+        orders: r.orders.size,
+        plates: r.plates.size,
+        models: top(r.models, 2).join(' · '),
+        type: top(r.types)[0] ?? '',
+        last: r.last,
+        share: total ? r.amount / total : 0,
+        cumulative: total ? acc / total : 0,
+      }
+    })
+}
+
 /** Meses con OT (AAAA-MM), del más reciente al más antiguo. */
 export function getAvailableMonths() {
   const set = new Set()

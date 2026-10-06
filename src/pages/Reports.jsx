@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Clock, Download, FileSpreadsheet, Gauge, Loader2, Receipt, TrendingUp } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { BRANCHES, TODAY, addDays, daysBetween, getAvailableMonths, getExpenseRows, getMonthlyReport, getVehicle, getVehicles, iso } from '@/data/api'
+import { BRANCHES, TODAY, addDays, daysBetween, getAvailableMonths, getExpenseRows, getMonthlyReport, getUnclassifiedParts, getVehicle, getVehicles, iso } from '@/data/api'
 import { CATEGORY_BY_ID } from '@/data/catalog'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/misc'
 import { clp, clpShort, date, monthLong, num, pct } from '@/lib/format'
-import { exportMonthly, exportTable } from '@/lib/excel/exports'
+import { exportMonthly, exportTable, exportUnclassifiedParts } from '@/lib/excel/exports'
 
 function ReportCard({ icon: Icon, title, description, columns, rows, filename, delay, chart, period }) {
   // preview: false => la columna va en el CSV pero no en la vista previa angosta
@@ -181,11 +181,22 @@ export default function Reports() {
     [vehicles, from, to],
   )
 
+  const unclassified = useMemo(() => getUnclassifiedParts(), [])
   const suffix = `${from}_a_${to}`
   const period = `período del ${date(from)} al ${date(to)}`
   return (
     <>
-      <PageHeader title="Reportes" description="Informe mensual e informes descargables en Excel, con resumen y gráficos" />
+      <PageHeader
+        title="Reportes"
+        description="Informe mensual e informes descargables en Excel, con resumen y gráficos"
+        actions={
+          unclassified.length > 0 && (
+            <Button onClick={() => exportUnclassifiedParts(unclassified)} title="Excel para clasificar los códigos que no están en los catálogos de repuestos">
+              <Download size={16} /> Repuestos sin clasificar ({unclassified.length})
+            </Button>
+          )
+        }
+      />
       <MonthlyReportCard />
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-end gap-3">

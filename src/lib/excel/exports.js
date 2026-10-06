@@ -347,6 +347,62 @@ export function exportTable({ filename, title, subtitle, columns, rows, chart })
   return save(filename, { title, subtitle: subtitleOf(subtitle), sheets }, rows.length)
 }
 
+// ------------------------------------------- repuestos sin clasificar
+const PART_CLASSES = ['Preventivo', 'Correctivo', 'Neumáticos', 'Equipamiento']
+/** Sugerencia por la descripción; solo una ayuda, la decisión es de quien clasifica. */
+function suggestClass(desc) {
+  const d = String(desc ?? '').toUpperCase()
+  if (/\bNEUM|\bLLANTA|CAMARA AIRE|VALVULA NEUM/.test(d)) return 'Neumáticos'
+  if (/FILTRO|ACEITE|LUBRIC|REFRIGERANTE|LIQ(UIDO)?\.? ?FRENO|MANTENCI|PAUTA|GRASA|ORING|O-RING|SCANNER|LAVADO/.test(d)) return 'Preventivo'
+  if (/LAMINA|BARRA ANTIVUELCO|PERTIGA|BALIZA|CINTA REFLEC|EXTINTOR|CU[ÑN]A|BOTIQU|ADHESIVO|SE[ÑN]ALETICA|ANTENA|\bGPS\b|JAULA|LOGO|CAMILLA|EPP|MANGAS TERRESTRES|KIT (DE )?DERRAME|PORTA ?ESCALA|ESTANQUE .*IRONMAN/.test(d)) return 'Equipamiento'
+  return 'Correctivo'
+}
+
+export function exportUnclassifiedParts(rows) {
+  const total = sum(rows, (r) => r.amount)
+  const top = rows.slice(0, 15)
+  const coverage = (n) => (rows.length ? rows[Math.min(n, rows.length) - 1].cumulative : 0)
+  return save(`Repuestos por clasificar ${iso(TODAY)}.xlsx`, {
+    title: 'Repuestos y servicios sin clasificar',
+    subtitle: subtitleOf('códigos de las OT que no están en ningún catálogo de repuestos'),
+    sheets: [
+      {
+        name: 'Cómo usar',
+        kind: 'dashboard',
+        kpis: [
+          { label: 'Códigos sin clasificar', value: rows.length, fmt: 'int' },
+          { label: 'Monto sin clasificar', value: total, fmt: 'clp', color: 'FFF97316' },
+          { label: 'Los 20 primeros cubren', value: coverage(20), fmt: 'pct', hint: 'del monto sin clasificar', color: 'FF22C55E' },
+          { label: 'Los 50 primeros cubren', value: coverage(50), fmt: 'pct', hint: 'del monto sin clasificar', color: 'FF3B82F6' },
+        ],
+        charts: [{ type: 'barH', title: 'Los 15 códigos con más monto', wide: true, rows: 18, fmt: 'clpM', labels: true, categories: top.map((r) => `${r.code} · ${r.description}`.slice(0, 60)), series: [{ name: 'Monto', values: top.map((r) => r.amount) }] }],
+        notes: [
+          '1. En la hoja "Por clasificar", elija la clase de cada código en la columna amarilla "Clase" (lista desplegable).',
+          '   La columna "Sugerencia" es solo una ayuda según la descripción; revísela antes de aceptarla.',
+          '2. Guarde el archivo y déjelo en la carpeta SAP del escritorio. WEST IA lo lee solo y recalcula los gastos.',
+          '3. Los códigos con la columna "Clase" vacía se ignoran: puede clasificarlos de a poco.',
+          'Clases: Preventivo (pauta / mantención), Correctivo (reparación de fallas), Neumáticos, Equipamiento (preparación de unidades, no es falla).',
+        ],
+      },
+      detail('Por clasificar', 'Códigos por clasificar · ordenados por monto', [
+        { header: 'Código', value: 'code', bold: true },
+        { header: 'Descripción', value: 'description', width: 52 },
+        { header: 'Clase', value: () => null, list: PART_CLASSES, width: 16 },
+        { header: 'Sugerencia', value: (r) => suggestClass(r.description), width: 14 },
+        { header: 'Monto', value: 'amount', fmt: 'clp', total: 'sum', bar: true },
+        { header: '% del monto', value: 'share', fmt: 'pct' },
+        { header: '% acumulado', value: 'cumulative', fmt: 'pct' },
+        { header: 'Cantidad', value: 'qty', fmt: 'dec1' },
+        { header: 'OT', value: 'orders', fmt: 'int', total: 'sum' },
+        { header: 'Patentes', value: 'plates', fmt: 'int' },
+        { header: 'Modelos', value: 'models', width: 40 },
+        { header: 'Tipo de OT más común', value: 'type' },
+        { header: 'Último uso', value: 'last', fmt: 'date' },
+      ], rows, { freezeCols: 2, note: `${rows.length} códigos · complete la columna amarilla "Clase" y deje el archivo en la carpeta SAP` }),
+    ],
+  }, rows.length)
+}
+
 // ------------------------------------------------------- informe mensual
 export function exportMonthly(report, monthName) {
   const s = report.summary

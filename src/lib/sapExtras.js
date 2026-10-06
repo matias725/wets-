@@ -23,7 +23,8 @@ function findHeader(rows, test, maxRows = 12) {
   for (let i = 0; i < Math.min(rows.length, maxRows); i++) {
     const r = rows[i]
     if (!r) continue
-    const cells = r.map(norm)
+    // Array.from: las filas pueden tener huecos (celdas vacías) que map no recorre
+    const cells = Array.from(r, norm)
     const idx = test(cells)
     if (idx) return { row: i, ...idx }
   }
@@ -34,8 +35,10 @@ const codeHeader = (cells) => {
   const code = cells.findIndex((c) => c === 'codigo')
   const desc = cells.findIndex((c) => c.startsWith('descripcion'))
   if (code < 0 || desc < 0) return null
-  return { code, desc, rec: cells.findIndex((c) => c === 'recuperabilidad') }
+  return { code, desc, rec: cells.findIndex((c) => c === 'recuperabilidad'), cls: cells.findIndex((c) => c === 'clase') }
 }
+// texto de la columna "Clase" (Excel de repuestos por clasificar) → letra
+const CLASS_BY_TEXT = { preventivo: 'P', correctivo: 'C', neumaticos: 'N', neumatico: 'N', equipamiento: 'E' }
 
 /** Qué tipo de archivo es: 'sap' | 'repuestos' | 'gestion' | null. */
 export function detectKind(sheets) {
@@ -44,7 +47,7 @@ export function detectKind(sheets) {
     if (h) return 'sap'
   }
   if (sheets.some((ws) => findHeader(ws.rows, (cells) => (cells.includes('patente') && cells.some((c) => c.startsWith('estado actual real')) ? {} : null)))) return 'gestion'
-  if (sheets.some((ws) => CLASS_BY_SHEET[norm(ws.name)] && findHeader(ws.rows, codeHeader))) return 'repuestos'
+  if (sheets.some((ws) => (CLASS_BY_SHEET[norm(ws.name)] || findHeader(ws.rows, codeHeader)?.cls >= 0) && findHeader(ws.rows, codeHeader))) return 'repuestos'
   return null
 }
 
@@ -52,14 +55,15 @@ export function detectKind(sheets) {
 export function parsePartsCatalog(sheets) {
   const out = {}
   for (const ws of sheets) {
-    const cls = CLASS_BY_SHEET[norm(ws.name)]
-    if (!cls) continue
+    const sheetCls = CLASS_BY_SHEET[norm(ws.name)]
     const h = findHeader(ws.rows, codeHeader)
-    if (!h) continue
+    // hojas Preventivo / Correctivo / ... o una hoja con columna "Clase"
+    if (!h || (!sheetCls && h.cls < 0)) continue
     for (let i = h.row + 1; i < ws.rows.length; i++) {
       const r = ws.rows[i]
       const code = partKey(r?.[h.code])
-      if (!code) continue
+      const cls = sheetCls ?? CLASS_BY_TEXT[norm(r?.[h.cls])]
+      if (!code || !cls) continue
       const rec = h.rec >= 0 ? norm(r[h.rec]) : ''
       out[code] = rec.startsWith('no cobrable') ? { c: cls, r: 'NO cobrable' } : { c: cls }
     }
@@ -123,7 +127,7 @@ export function photoBlocks(sheets) {
   if (!ws) return []
   const blocks = []
   ws.rows.forEach((r, i) => {
-    const cells = (r ?? []).map(text)
+    const cells = Array.from(r ?? [], text)
     const title = cells.find((c) => /^FOTO \d+ · /i.test(c))
     if (title) blocks.push({ row: i, plate: title.split('·')[1].trim(), workOrder: '' })
     const k = cells.findIndex((c) => norm(c).replace(/[.º°]/g, '').replace(/\s+/g, ' ') === 'n ot')
