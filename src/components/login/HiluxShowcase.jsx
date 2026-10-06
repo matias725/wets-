@@ -8,6 +8,7 @@ import '@fontsource/big-shoulders-display/800'
 import '@fontsource/big-shoulders-display/900'
 import { ArrowRight, ChevronsDown, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { buildHilux, HEART, RADIUS } from './hilux'
+import { startSketchfab } from './sketchfab'
 import logoYellow from '@/assets/img/west_logo_yellow.png'
 import fallbackPhoto from '@/assets/img/login-desierto.jpg'
 
@@ -24,6 +25,9 @@ const INK = '#050505'
 // Modelo 3D real opcional: si existe, reemplaza a la camioneta modelada por código.
 const MODEL_URL = '/models/hilux.glb'
 const MODEL_CONFIG_URL = '/models/hilux.json' // { "rotateY": 180 } si el modelo mira hacia atrás
+// Modelo publicado en Sketchfab (se muestra con su visor oficial, sin descargarlo).
+// "Toyota Hilux BEV 2026" de ROH3D. Vacío ('') para no usarlo.
+const SKETCHFAB_UID = '7cfe837686a049819a38afb490b6d2af'
 const BONE = '#e9e3cf'
 const GOLD = '#ffc400'
 const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Impact, sans-serif'
@@ -226,6 +230,8 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
   const stageRef = useRef(null)
   const canvasRef = useRef(null)
   const glowRef = useRef(null)
+  const sketchRef = useRef(null)
+  const [sketchReady, setSketchReady] = useState(false)
   const wordRef = useRef(null)
   const emailRef = useRef(null)
   const [reduced, setReduced] = useState(false)
@@ -308,12 +314,24 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
     // Si hay un modelo real en public/models/hilux.glb, se normaliza (largo 5,3 m,
     // ruedas en el suelo, frente hacia +X) y reemplaza al modelado por código.
     let external = null
+    let sketch = null
     let disposed = false
     ;(async () => {
       try {
         const head = await fetch(MODEL_URL, { method: 'HEAD' })
         const type = head.headers.get('content-type') || ''
-        if (!head.ok || type.includes('text/html')) return
+        if (!head.ok || type.includes('text/html')) {
+          // sin modelo local: se intenta el visor de Sketchfab
+          if (SKETCHFAB_UID && sketchRef.current) {
+            const ctrl = await startSketchfab(sketchRef.current, SKETCHFAB_UID)
+            if (disposed) return ctrl.dispose()
+            sketch = ctrl
+            pivot.visible = false
+            ground.visible = false
+            setSketchReady(true)
+          }
+          return
+        }
         let config = {}
         try {
           const c = await fetch(MODEL_CONFIG_URL)
@@ -500,6 +518,14 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
       camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert()
 
       pivot.rotation.y = k.spin + spin + sway + px * 0.22
+      if (sketch) {
+        // misma coreografía con la cámara del visor: girar el modelo = orbitar al revés
+        // En la vista desde arriba el modelo de Sketchfab queda atravesado: se gira 90° para que
+        // quede vertical entre la W y la A (el ajuste se desvanece en los cuadros vecinos).
+        const topFix = Math.max(0, 1 - Math.abs(coord - 1)) * (Math.PI / 2)
+        sketch.setView({ az: -(k.spin - KEYS[0].spin) - (spin + sway + px * 0.22) + topFix, el: k.el + py * 8, zoom: (k.size / KEYS[0].size) * (0.78 + 0.22 * intro) }, now)
+        sketchRef.current.style.transform = `translate(${((k.ox * W) / 2).toFixed(1)}px,${((-k.oy * H) / 2).toFixed(1)}px)`
+      }
       truck.update({ t: time, roll: coord * 4.2, alive: moving, lights })
 
       if (moving) {
@@ -603,6 +629,7 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
       stage.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointerup', onUp)
       disposed = true
+      sketch?.dispose()
       truck.dispose()
       external?.traverse((o) => {
         o.geometry?.dispose()
@@ -679,6 +706,29 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
           <img src={fallbackPhoto} alt="" className="absolute inset-0 size-full object-cover opacity-50" />
         ) : (
           <canvas ref={canvasRef} aria-hidden className="absolute inset-0 block" style={{ width: '100%', height: '100%' }} />
+        )}
+        {SKETCHFAB_UID && (
+          <iframe
+            ref={sketchRef}
+            title="Toyota Hilux 3D · Sketchfab"
+            aria-hidden
+            tabIndex={-1}
+            allow="autoplay; fullscreen; xr-spatial-tracking"
+            className="absolute inset-0"
+            style={{ width: '100%', height: '100%', border: 0, pointerEvents: 'none', opacity: sketchReady ? 1 : 0, transition: 'opacity 1.2s ease', willChange: 'transform' }}
+          />
+        )}
+
+        {sketchReady && (
+          <a
+            href="https://sketchfab.com/3d-models/toyota-hilux-bev-2026-7cfe837686a049819a38afb490b6d2af"
+            target="_blank"
+            rel="noreferrer"
+            className="pointer-events-auto absolute"
+            style={{ ...sans, right: '2cqw', bottom: '1.2cqh', fontSize: 9, letterSpacing: '0.08em', color: BONE, opacity: 0.45, textDecoration: 'none', zIndex: 5 }}
+          >
+            Modelo 3D: Toyota Hilux BEV 2026 · ROH3D · Sketchfab
+          </a>
         )}
 
         {/* barra superior: siempre se puede ir directo al ingreso */}
