@@ -246,6 +246,20 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
   }
   onProgress('Leyendo maestro de vehículos…', 0.85)
   await tick()
+  // sucursal del vehículo: la oficina de su centro de costo en el maestro
+  // ("RAC OFC. (SAN PEDRO)", "RAC AEROPUERTO (CALAMA)"…); si no indica una
+  // sucursal conocida, la de su última OT
+  const branchByPlace = {}
+  Object.keys(branchIds).forEach((raw) => (branchByPlace[norm(raw)] = raw))
+  const tc = Object.keys(branchIds).find((raw) => norm(raw) === 'taller central')
+  if (tc) branchByPlace['la serena'] ??= tc
+  const ALIAS = { 'san pedro': 'san pedro atacama', 'san pedro de atacama': 'san pedro atacama' }
+  const branchOfCostCenter = (name) => {
+    const m = norm(name).match(/^(?:rac ofc\.?|rac aeropuerto|lop|operaciones)\s*\(([^)]+)\)/)
+    if (!m) return null
+    const place = m[1].replace(/^faena /, '').trim()
+    return branchByPlace[ALIAS[place] ?? place] ?? null
+  }
   const vehicles = []
   const seen = new Set()
   const thisYear = new Date().getFullYear()
@@ -268,6 +282,8 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
       const status = active ? 'workshop' : area === 'USADOS' ? 'sold' : area === 'PERDIDA TOTAL' ? 'out' : 'available'
       const year = Math.trunc(num(mc(r, 'ano')))
       const fuel = norm(mc(r, 'combustible'))
+      const ccBranch = branchOfCostCenter(text(mc(r, 'nombre c.costo')))
+      const branchRaw = ccBranch ?? last?.branchRaw ?? ''
       vehicles.push({
         plate,
         vin: text(mc(r, 'n.chasis')),
@@ -279,8 +295,8 @@ export async function convertSapSheets(sheets, { fileName = 'SAP.xlsx', catalog 
         transmission: '',
         fuel: fuel.includes('diesel') || fuel.includes('petroleo') ? 'Diésel' : fuel.includes('bencina') || fuel.includes('gasolina') ? 'Bencina' : titleCase(text(mc(r, 'combustible'))),
         color: titleCase(text(mc(r, 'color vehiculo'))),
-        branchId: last?.branchId ?? null,
-        branchRaw: last?.branchRaw ?? '',
+        branchId: branchIds[branchRaw] ?? null,
+        branchRaw,
         status,
         mileage: km,
         nextMaintenanceKm: nextKm,
