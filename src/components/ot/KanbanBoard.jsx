@@ -5,6 +5,7 @@ import { KANBAN_COLUMNS, PRIORITY_COLOR } from '@/data/catalog'
 import { saveManagement } from '@/data/api'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { cx } from '@/lib/format'
+import { toast } from 'sonner'
 
 /**
  * Tablero de mantenciones. Arrastrar una tarjeta a otra columna actualiza el
@@ -28,6 +29,7 @@ export function KanbanBoard({ rows, onOpen }) {
     if (column.id === 'ready') patch.blocker = 'Sin bloqueo / liberable'
     if (column.id === 'parts') patch.blocker = 'Repuesto'
     saveManagement(ot.workOrder, patch)
+    toast.success(`OT ${ot.workOrder} movida a "${column.label}"`)
   }
 
   return (

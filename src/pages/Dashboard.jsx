@@ -7,7 +7,7 @@ import { AlertTriangle, ArrowRight, CarFront, CheckCircle2, Gauge, LogIn, Receip
 import { useApp } from '@/context/AppContext'
 import { useData } from '@/hooks/useData'
 import {
-  BRANCHES, ALL_BRANCHES, TODAY, getExpenseRows, getOpenWorkOrders, getVehicles, iso, addDays,
+  BRANCHES, ALL_BRANCHES, TODAY, getExpenseRows, getOpenWorkOrders, getVehicles, iso, addDays, isRealData,
 } from '@/data/api'
 import { CATEGORIES, PRIORITY_COLOR, VEHICLE_STATUS } from '@/data/catalog'
 import { Card, CardHeader } from '@/components/ui/Card'
@@ -45,6 +45,7 @@ export default function Dashboard() {
       rented: vehicles.filter((v) => v.status === 'rented').length,
       inToday: open.filter((o) => o.receivedDate === todayIso).length,
       releaseToday: open.filter((o) => o.management.commitmentDate === todayIso).length,
+      closedToday: expenses.filter((e) => e.date === todayIso).length,
       monthSpend: expenses.filter((e) => e.date > since).reduce((s, e) => s + e.total, 0),
       inWorkshop: new Set(open.map((o) => o.plate)).size,
       critical: open.filter((o) => o.daysOpen > 10).length,
@@ -84,7 +85,9 @@ export default function Dashboard() {
       const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - 12 + i, 1)
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     })
-    return months.map((m) => {
+    // con datos SAP el historial empieza cuando empiezan las OT: sin meses vacíos al inicio
+    const first = months.findIndex((m) => expenses.some((e) => e.month === m))
+    return months.slice(isRealData && first > 0 ? first : 0).map((m) => {
       const rows = expenses.filter((e) => e.month === m)
       return {
         month: m,
@@ -110,7 +113,7 @@ export default function Dashboard() {
         .filter((o) => o.management.commitmentDate === iso(addDays(TODAY, 1)))
         .map((o) => ({ kind: 'Compromiso mañana', icon: CheckCircle2, color: '#3b82f6', o, tomorrow: true })),
     ]
-    return items.map((it) => ({ ...it, time: it.tomorrow ? 'Mañana' : slotFor(it.o.workOrder) })).sort((a, b) => a.time.localeCompare(b.time))
+    return items.map((it) => ({ ...it, time: it.tomorrow ? 'Mañana' : isRealData ? 'Hoy' : slotFor(it.o.workOrder) })).sort((a, b) => a.time.localeCompare(b.time))
   }, [open])
 
   const attention = open.slice(0, 6)
@@ -122,9 +125,13 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard label="Disponibilidad" value={kpis.availability * 100} format={(n) => `${n.toFixed(1).replace('.', ',')}%`} hint={`${kpis.total - kpis.inWorkshop} de ${kpis.total} unidades operativas`} icon={Gauge} color="#22c55e" delay={0} />
-        <KpiCard label="Disponibles hoy" value={kpis.available} hint={`${kpis.rented} arrendadas en este momento`} icon={CarFront} color="#3b82f6" delay={0.04} />
+        <KpiCard label="Disponibles hoy" value={kpis.available} hint={isRealData ? 'Operativas, sin OT abierta' : `${kpis.rented} arrendadas en este momento`} icon={CarFront} color="#3b82f6" delay={0.04} />
         <KpiCard label="Ingresos hoy" value={kpis.inToday} hint="OT recibidas hoy" icon={LogIn} color="#f59e0b" delay={0.08} onClick={() => navigate('/ot')} />
-        <KpiCard label="Liberaciones hoy" value={kpis.releaseToday} hint="Compromisos con fecha de hoy" icon={CheckCircle2} color="#06b6d4" delay={0.12} onClick={() => navigate('/ot?vista=tablero')} />
+        {isRealData ? (
+          <KpiCard label="Cerradas hoy" value={kpis.closedToday} hint="OT cerradas en SAP hoy" icon={CheckCircle2} color="#06b6d4" delay={0.12} onClick={() => navigate('/gastos')} />
+        ) : (
+          <KpiCard label="Liberaciones hoy" value={kpis.releaseToday} hint="Compromisos con fecha de hoy" icon={CheckCircle2} color="#06b6d4" delay={0.12} onClick={() => navigate('/ot?vista=tablero')} />
+        )}
         <KpiCard label="Gasto 30 días" value={kpis.monthSpend} format={clpShort} hint={clp(kpis.monthSpend)} icon={Receipt} color="#ffc400" delay={0.16} onClick={() => navigate('/gastos')} />
         <KpiCard label="En taller" value={kpis.inWorkshop} hint={`${kpis.critical} con más de 10 días`} icon={Wrench} color="#ef4444" delay={0.2} onClick={() => navigate('/ot')} />
       </div>
@@ -132,7 +139,7 @@ export default function Dashboard() {
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <div className="grid min-w-0 gap-4 xl:col-span-2">
           <Card delay={0.1}>
-            <CardHeader title="Uso de la flota por sucursal" subtitle="Disponibles, arrendadas y en taller · 10 sucursales con más unidades" />
+            <CardHeader title="Uso de la flota por sucursal" subtitle={`${isRealData ? 'Disponibles y en taller' : 'Disponibles, arrendadas y en taller'} · 10 sucursales con más unidades`} />
             <div className="h-[340px] px-2 pb-4">
               <ResponsiveContainer>
                 <BarChart data={occupancy} layout="vertical" margin={{ top: 4, right: 20, left: 8, bottom: 0 }} barCategoryGap="26%">

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Activity, Cog, Repeat, TrendingUp } from 'lucide-react'
 import { useData } from '@/hooks/useData'
-import { TODAY, addDays, getOpenWorkOrders, getVehicle, getVehicles, iso } from '@/data/api'
+import { TODAY, addDays, getOpenWorkOrders, getVehicle, getVehicles, iso, isRealData } from '@/data/api'
 import { VEHICLE_STATUS } from '@/data/catalog'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { DataTable } from '@/components/ui/DataTable'
@@ -55,7 +55,8 @@ export default function Health() {
     details.forEach((v) =>
       v.history.forEach((o) =>
         o.lines
-          .filter((l) => !l.code.startsWith('MO-'))
+          // sin mano de obra (demo: códigos MO-; SAP: servicios de mano de obra)
+          .filter((l) => !l.code.startsWith('MO-') && !/MANO ?OBRA/i.test(`${l.code} ${l.description}`))
           .forEach((l) => {
             map[l.description] ??= { name: l.description, cost: 0, qty: 0 }
             map[l.description].cost += l.total
@@ -66,7 +67,10 @@ export default function Health() {
     return Object.values(map).sort((a, b) => b.cost - a.cost).slice(0, 8)
   }, [details])
 
-  const distribution = Object.entries(VEHICLE_STATUS).map(([id, s]) => ({ id, ...s, count: vehicles.filter((v) => v.status === id).length }))
+  // con datos SAP no hay arriendos ni limpieza: solo se listan los estados presentes
+  const distribution = Object.entries(VEHICLE_STATUS)
+    .map(([id, s]) => ({ id, ...s, count: vehicles.filter((v) => v.status === id).length }))
+    .filter((d) => !isRealData || d.count > 0)
 
   return (
     <>
@@ -128,7 +132,7 @@ export default function Health() {
               <BarChart data={components} layout="vertical" margin={{ left: 8, right: 16 }}>
                 <CartesianGrid horizontal={false} stroke="var(--chart-grid)" />
                 <XAxis type="number" {...axisProps} tickFormatter={(v) => clpShort(v).replace('$ ', '')} />
-                <YAxis type="category" dataKey="name" {...axisProps} width={170} tick={{ fill: 'var(--muted)', fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" {...axisProps} width={130} interval={0} tick={{ fill: 'var(--muted)', fontSize: 10 }} tickFormatter={(v) => (v.length > 22 ? v.slice(0, 21) + '…' : v)} />
                 <Tooltip cursor={{ fill: 'var(--hover)' }} content={<ChartTooltip formatter={clp} />} />
                 <Bar dataKey="cost" name="Costo" fill="#ffc400" radius={[0, 6, 6, 0]} />
               </BarChart>

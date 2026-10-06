@@ -16,6 +16,7 @@ import { exportFleetExcel } from '@/lib/fleetExcel'
 import { ImportFleetModal } from '@/components/fleet/ImportFleetModal'
 import { SapImportModal } from '@/components/fleet/SapImportModal'
 import { clearSapData } from '@/lib/sapStore'
+import { toast } from 'sonner'
 
 function MaintenanceCell({ v }) {
   if (!v.mileage) return <div className="text-right text-xs text-muted">Sin registro</div>
@@ -69,6 +70,9 @@ export default function Fleet() {
     return c
   }, [vehicles])
 
+  // Estados y filtros que los datos no usan (p. ej. arriendos o transmisión, que el SAP no trae) no se muestran.
+  const shownStatus = Object.entries(VEHICLE_STATUS).filter(([id]) => !isRealData || counts[id] > 0)
+  const hasTransmission = vehicles.some((v) => v.transmission)
   const active = [category, status, transmission, fuel].filter((x) => x !== 'all').length + (query ? 1 : 0) + (maintenanceDue ? 1 : 0) + (docsDue ? 1 : 0)
   const clear = () => {
     setQuery('')
@@ -98,7 +102,7 @@ export default function Fleet() {
       {
         id: 'mechanics',
         accessorFn: (v) => `${v.transmission} ${v.fuel}`,
-        header: 'Mecánica',
+        header: hasTransmission ? 'Mecánica' : 'Combustible',
         cell: ({ row: { original: v } }) => (
           <div className="text-muted">
             <div>{v.transmission}</div>
@@ -120,7 +124,7 @@ export default function Fleet() {
       { accessorKey: 'mileage', header: 'Kilometraje', cell: (c) => (c.getValue() ? km(c.getValue()) : '—'), meta: { align: 'right' } },
       { accessorKey: 'kmToMaintenance', header: 'Mantención', cell: ({ row: { original: v } }) => <MaintenanceCell v={v} />, meta: { align: 'right' } },
     ],
-    [],
+    [hasTransmission],
   )
 
   const exportCSV = () =>
@@ -156,6 +160,7 @@ export default function Fleet() {
                 setExporting(true)
                 try {
                   await exportFleetExcel(rows, `WEST_IA_flota_${iso(TODAY)}.xlsx`)
+                  toast.success('Flota exportada a Excel', { description: `${rows.length.toLocaleString('es-CL')} vehículos` })
                 } finally {
                   setExporting(false)
                 }
@@ -222,7 +227,7 @@ export default function Fleet() {
       )}
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {Object.entries(VEHICLE_STATUS).map(([id, s], i) => (
+        {shownStatus.map(([id, s], i) => (
           <motion.button
             key={id}
             type="button"
@@ -244,8 +249,8 @@ export default function Fleet() {
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput value={query} onChange={setQuery} placeholder="Patente, modelo, cliente, VIN…" className="min-w-60 flex-1" />
           <Select value={category} onChange={(e) => setCategory(e.target.value)} options={[{ value: 'all', label: 'Todas las categorías' }, ...CATEGORIES.map((c) => ({ value: c.id, label: c.label }))]} className="w-56" aria-label="Categoría" />
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} options={[{ value: 'all', label: 'Todos los estados' }, ...Object.entries(VEHICLE_STATUS).map(([value, s]) => ({ value, label: s.label }))]} className="w-44" aria-label="Estado" />
-          <Select value={transmission} onChange={(e) => setTransmission(e.target.value)} options={[{ value: 'all', label: 'Transmisión' }, 'Manual', 'Automática']} className="w-36" aria-label="Transmisión" />
+          <Select value={status} onChange={(e) => setStatus(e.target.value)} options={[{ value: 'all', label: 'Todos los estados' }, ...shownStatus.map(([value, s]) => ({ value, label: s.label }))]} className="w-44" aria-label="Estado" />
+          {hasTransmission && <Select value={transmission} onChange={(e) => setTransmission(e.target.value)} options={[{ value: 'all', label: 'Transmisión' }, 'Manual', 'Automática']} className="w-36" aria-label="Transmisión" />}
           <Select value={fuel} onChange={(e) => setFuel(e.target.value)} options={[{ value: 'all', label: 'Combustible' }, 'Bencina', 'Diésel']} className="w-36" aria-label="Combustible" />
           {active > 0 && (
             <Button variant="ghost" size="sm" onClick={clear}>

@@ -1,12 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   flexRender, getCoreRowModel, getPaginationRowModel, getSortedRowModel, useReactTable,
 } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, SearchX } from 'lucide-react'
 import { cx } from '@/lib/format'
 
+const PHONE = '(max-width: 639px)'
+function usePhone() {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE)
+    const sync = () => setPhone(mq.matches)
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return phone
+}
+
+const headerText = (column) => (typeof column.columnDef.header === 'string' ? column.columnDef.header : '')
+
 /**
- * Tabla con orden y paginación (TanStack Table v8).
+ * Tabla con orden y paginación (TanStack Table v8). En el celular cada fila se
+ * muestra como tarjeta (sin columnas escondidas a la derecha).
  * Los filtros se aplican antes, en la página, para que los KPIs y la tabla
  * usen exactamente el mismo conjunto de filas.
  */
@@ -29,9 +44,67 @@ export function DataTable({ data, columns, onRowClick, pageSize = 12, initialSor
   const total = data.length
   const from = total ? pagination.pageIndex * pagination.pageSize + 1 : 0
   const to = Math.min(total, (pagination.pageIndex + 1) * pagination.pageSize)
+  const phone = usePhone()
+  const sortable = table.getAllLeafColumns().filter((c) => c.getCanSort() && headerText(c))
+  const current = sorting[0]
 
   return (
     <div>
+      {phone ? (
+        <div>
+          {sortable.length > 1 && (
+            <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted">
+              <span>Ordenar por</span>
+              <select
+                value={current?.id ?? ''}
+                onChange={(e) => setSorting(e.target.value ? [{ id: e.target.value, desc: current?.desc ?? true }] : [])}
+                className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-transparent px-2 text-xs text-fg"
+                aria-label="Ordenar por"
+              >
+                <option value="">Orden original</option>
+                {sortable.map((c) => (
+                  <option key={c.id} value={c.id}>{headerText(c)}</option>
+                ))}
+              </select>
+              {current && (
+                <button type="button" onClick={() => setSorting([{ ...current, desc: !current.desc }])} className="grid size-8 place-items-center rounded-lg border border-line text-fg" aria-label={current.desc ? 'Mayor a menor' : 'Menor a mayor'}>
+                  {current.desc ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
+                </button>
+              )}
+            </div>
+          )}
+          <ul>
+            {rows.map((row) => {
+              const [first, ...rest] = row.getVisibleCells()
+              return (
+                <li
+                  key={row.id}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  className={cx('border-b border-line px-4 py-3 last:border-0', onRowClick && 'cursor-pointer active:bg-hover')}
+                >
+                  <div className="min-w-0 text-sm">{flexRender(first.column.columnDef.cell, first.getContext())}</div>
+                  {rest.length > 0 && (
+                    <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                      {rest.map((cell) => (
+                        <div key={cell.id} className="min-w-0">
+                          {headerText(cell.column) && <dt className="text-[10px] font-medium tracking-wide text-muted uppercase">{headerText(cell.column)}</dt>}
+                          <dd className="min-w-0 text-[13px] break-words">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {!rows.length && (
+            <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted">
+              <SearchX size={22} className="text-subtle" />
+              {emptyText}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm" style={{ minWidth }}>
           <thead>
@@ -82,6 +155,7 @@ export function DataTable({ data, columns, onRowClick, pageSize = 12, initialSor
           </div>
         )}
       </div>
+      )}
       {total > pagination.pageSize && (
         <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3 text-xs text-muted">
           <span className="tabular">

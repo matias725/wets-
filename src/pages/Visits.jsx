@@ -15,6 +15,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Overlay'
 import { PageHeader } from '@/components/ui/misc'
 import { cx, date, downloadCSV } from '@/lib/format'
+import { toast } from 'sonner'
 
 const RESULT_COLOR = { NUEVA: '#3b82f6', 'CONTINÚA': '#f59e0b', LIBERADA: '#22c55e' }
 
@@ -43,6 +44,7 @@ function NewVisitForm({ onClose, onCreated }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const submit = () => {
     const visit = createVisit(form)
+    toast.success('Visita creada', { description: `${visit.items.length} OT abiertas registradas` })
     onCreated(visit)
     onClose()
   }
@@ -85,6 +87,7 @@ function StalledModal({ open, onClose, visit }) {
     addStalledWithoutOT({ ...form, plate: normalized, branchId: visit.branchId, detectedAt: iso(TODAY), visitId: visit.id })
     setForm({ plate: '', reason: '', responsible: '', commitmentDate: '' })
     setError('')
+    toast.success(`${normalized} registrada como detenida sin OT`)
     onClose()
   }
   return (
@@ -158,7 +161,10 @@ function VisitDetail({ visit }) {
             <Download size={14} /> CSV
           </Button>
           {isOpen && (
-            <Button size="sm" variant="primary" onClick={() => closeVisit(visit.id)}>
+            <Button size="sm" variant="primary" onClick={() => {
+                closeVisit(visit.id)
+                toast.success('Visita cerrada')
+              }}>
               <Lock size={14} /> Cerrar visita
             </Button>
           )}

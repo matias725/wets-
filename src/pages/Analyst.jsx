@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Bot, Send, Sparkles } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
-import { getVehicles } from '@/data/api'
+import { getVehicles, isRealData } from '@/data/api'
 import { SUGGESTIONS, answer } from '@/lib/analyst'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -71,7 +71,7 @@ export default function Analyst() {
         description="Consultas sobre la flota en lenguaje natural"
         actions={
           <span className="glass inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-muted">
-            <span className="size-2 rounded-full bg-emerald-400" /> Motor local · demostración
+            <span className="size-2 rounded-full bg-emerald-400" /> Motor local · {isRealData ? 'datos SAP' : 'demostración'}
           </span>
         }
       />

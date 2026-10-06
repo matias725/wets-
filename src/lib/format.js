@@ -1,4 +1,5 @@
 const clpFormatter = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
+import { toast } from 'sonner'
 const numberFormatter = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 })
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic']
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -48,6 +49,7 @@ export function downloadCSV(filename, rows, columns) {
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+  toast.success(`Descargado: ${filename}`, { description: `${rows.length.toLocaleString('es-CL')} filas` })
 }
 
 export const cx = (...parts) => parts.filter(Boolean).join(' ')

@@ -14,6 +14,7 @@ import { PageHeader, SearchInput } from '@/components/ui/misc'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { axisProps } from '@/lib/chart'
 import { clp, clpShort, date, downloadCSV, monthLabel, pct } from '@/lib/format'
+import { toast } from 'sonner'
 
 const RECOVERY_COLOR = { 'Por revisar': '#f59e0b', 'No recuperable': '#64748b', 'A cobro': '#22c55e' }
 
@@ -22,7 +23,10 @@ function RecoverySelect({ row }) {
     <select
       value={row.recovery}
       onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setRecovery(row.workOrder, e.target.value)}
+      onChange={(e) => {
+        setRecovery(row.workOrder, e.target.value)
+        toast.success(`OT ${row.workOrder}: ${e.target.value}`)
+      }}
       aria-label={`Recuperabilidad OT ${row.workOrder}`}
       className="cursor-pointer rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs font-medium outline-none hover:border-[var(--glass-border)] focus:border-brand/60 [&>option]:bg-[var(--glass-strong)] [&>option]:text-fg"
       style={{ color: RECOVERY_COLOR[row.recovery] }}
@@ -70,7 +74,8 @@ export default function Expenses() {
 
   const monthly = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, i) => {
+      // meses del año elegido, sin los que todavía no llegan
+      Array.from({ length: Number(year) === TODAY.getFullYear() ? TODAY.getMonth() + 1 : 12 }, (_, i) => {
         const m = `${year}-${String(i + 1).padStart(2, '0')}`
         const list = rows.filter((r) => r.month === m)
         return {
@@ -97,7 +102,6 @@ export default function Expenses() {
 
   const columns = useMemo(
     () => [
-      { accessorKey: 'date', header: 'Fecha', cell: (c) => <span className="tabular text-muted">{date(c.getValue())}</span> },
       {
         accessorKey: 'plate',
         header: 'Patente / OT',
@@ -108,6 +112,7 @@ export default function Expenses() {
           </div>
         ),
       },
+      { accessorKey: 'date', header: 'Fecha', cell: (c) => <span className="tabular text-muted">{date(c.getValue())}</span> },
       {
         accessorKey: 'branch',
         header: 'Sucursal / cliente',

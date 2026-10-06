@@ -9,6 +9,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Badge, DaysBadge } from '@/components/ui/Badge'
 import { Stat } from '@/components/ui/misc'
 import { clp, date, km } from '@/lib/format'
+import { toast } from 'sonner'
 
 /** Panel lateral de gestión WEST de una OT abierta (no modifica SAP). */
 export function ManagementDrawer({ ot: incoming, onClose, onSaved }) {
@@ -27,6 +28,7 @@ export function ManagementDrawer({ ot: incoming, onClose, onSaved }) {
   const responsibles = responsiblesFor(ot.branchId)
   const save = () => {
     saveManagement(ot.workOrder, form)
+    toast.success(`Gestión de la OT ${ot.workOrder} guardada`)
     setSaved(true)
     onSaved?.()
     setTimeout(onClose, 450)

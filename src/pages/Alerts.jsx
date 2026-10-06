@@ -88,8 +88,8 @@ function StalledTab({ rows, minDays, setMinDays }) {
         emptyText={`Ninguna OT abierta con más de ${minDays} días`}
         minWidth={860}
         columns={[
-          { accessorKey: 'daysOpen', header: 'Días', cell: (c) => <DaysBadge days={c.getValue()} /> },
           { accessorKey: 'plate', header: 'Vehículo', cell: ({ row: { original: o } }) => <Vehicle plate={o.plate} sub={o.vehicle || o.client} /> },
+          { accessorKey: 'daysOpen', header: 'Días', cell: (c) => <DaysBadge days={c.getValue()} /> },
           { accessorKey: 'workOrder', header: 'OT', cell: (c) => <span className="tabular text-muted">{c.getValue()}</span> },
           { accessorKey: 'branch', header: 'Sucursal' },
           {

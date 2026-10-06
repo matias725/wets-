@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/misc'
 import { clp, clpShort, date, downloadCSV, monthLong, num, pct } from '@/lib/format'
+import { toast } from 'sonner'
 
 function ReportCard({ icon: Icon, title, description, columns, rows, filename, delay }) {
   // preview: false => la columna va en el CSV pero no en la vista previa angosta
@@ -96,6 +97,7 @@ function MonthlyReportCard() {
               try {
                 const { downloadMonthlyReport } = await import('@/lib/monthlyReport')
                 await downloadMonthlyReport(report)
+                toast.success(`Informe de ${monthLong(month)} descargado`)
               } finally {
                 setBusy(false)
               }

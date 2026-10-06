@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, CarFront, ChevronDown, FileText, Gauge, Hammer, History, Receipt, ShieldAlert, Wrench } from 'lucide-react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useData } from '@/hooks/useData'
-import { getOpenWorkOrders, getVehicle, ALL_BRANCHES } from '@/data/api'
+import { getOpenWorkOrders, getVehicle, ALL_BRANCHES, isRealData } from '@/data/api'
 import { INTERVENTION_COLOR, VEHICLE_STATUS, expiryColor } from '@/data/catalog'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -36,7 +36,7 @@ function OTRow({ o }) {
           </div>
         </div>
         <div className="mt-0.5 text-xs text-muted">
-          OT {o.workOrder} · {o.branch} · {km(o.mileage)} · {o.sapStatus}
+          OT {o.workOrder} · {o.branch}{o.mileage ? ` · ${km(o.mileage)}` : ""} · {o.sapStatus}
         </div>
       </button>
       <AnimatePresence initial={false}>
@@ -95,7 +95,9 @@ export default function VehicleDetail() {
   const preventive = v.history.filter((o) => o.interventionType.startsWith('Preventiva'))
   const damages = v.history.filter((o) => ['DYP', 'Compañía de seguros'].includes(o.interventionType))
   const lists = { history: v.history, maintenance: preventive, damages }
-  const showPhoto = v.category.startsWith('pickup') || v.category === 'suv'
+  // la foto genérica (un Jeep) confunde con vehículos reales: con datos SAP se usa el ícono
+  const showPhoto = !isRealData && (v.category.startsWith('pickup') || v.category === 'suv')
+  const hasKm = v.mileage > 0
 
   return (
     <>
@@ -124,15 +126,15 @@ export default function VehicleDetail() {
               <Badge color="#94a3b8" dot={false}>{v.area}</Badge>
             </div>
             <p className="mt-1 text-lg text-muted">
-              {v.brand} {v.model} · {v.year}
+              {v.brand} {v.model}{v.year ? ` · ${v.year}` : ''}
             </p>
             <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
               <Stat label="Categoría" value={v.categoryLabel} />
               <Stat label="Sucursal" value={v.branch} />
               <Stat label="Cliente" value={v.client || 'Sin cliente'} />
-              <Stat label="Transmisión" value={v.transmission} />
+              {v.transmission && <Stat label="Transmisión" value={v.transmission} />}
               <Stat label="Combustible" value={v.fuel} />
-              <Stat label="VIN" value={<span className="text-xs">{v.vin}</span>} />
+              {v.vin && <Stat label="VIN" value={<span className="text-xs">{v.vin}</span>} />}
             </div>
           </div>
         </div>
@@ -156,17 +158,17 @@ export default function VehicleDetail() {
       )}
 
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="Kilometraje" value={v.mileage} format={(n) => km(n)} icon={Gauge} color="#3b82f6" />
+        <KpiCard label="Kilometraje" value={v.mileage} format={(n) => (hasKm ? km(n) : 'Sin registro')} hint={hasKm && isRealData ? 'Último registrado en una OT' : undefined} icon={Gauge} color="#3b82f6" />
         <KpiCard label="OT históricas" value={v.history.length} icon={History} color="#8b5cf6" delay={0.04} />
         <KpiCard label="Costo acumulado" value={v.totalCost} format={clpShort} hint={clp(v.totalCost)} icon={Receipt} color="#ffc400" delay={0.08} />
-        <KpiCard label="Costo por km" value={v.costPerKm} format={(n) => `$${n.toFixed(1).replace('.', ',')}`} icon={Hammer} color="#f97316" delay={0.12} />
+        <KpiCard label="Costo por km" value={v.costPerKm} format={(n) => (hasKm ? `${n.toFixed(1).replace('.', ',')}` : '—')} hint={hasKm ? undefined : 'Falta kilometraje'} icon={Hammer} color="#f97316" delay={0.12} />
         <KpiCard
           label="Próxima mantención"
           value={Math.abs(v.kmToMaintenance)}
-          format={(n) => (v.kmToMaintenance < 0 ? `-${num(n)} km` : `${num(n)} km`)}
-          hint={v.kmToMaintenance < 0 ? 'Vencida: programar ingreso' : `A los ${km(v.nextMaintenanceKm)}`}
+          format={(n) => (!hasKm ? 'Sin registro' : v.kmToMaintenance < 0 ? `-${num(n)} km` : `${num(n)} km`)}
+          hint={!hasKm ? 'Falta kilometraje' : v.kmToMaintenance < 0 ? 'Vencida: programar ingreso' : `A los ${km(v.nextMaintenanceKm)}`}
           icon={Wrench}
-          color={v.kmToMaintenance < 0 ? '#ef4444' : v.kmToMaintenance < 1500 ? '#f59e0b' : '#22c55e'}
+          color={!hasKm ? '#64748b' : v.kmToMaintenance < 0 ? '#ef4444' : v.kmToMaintenance < 1500 ? '#f59e0b' : '#22c55e'}
           delay={0.16}
         />
       </div>

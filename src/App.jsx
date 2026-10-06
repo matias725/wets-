@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { AppProvider, useApp } from '@/context/AppContext'
 import { Layout } from '@/components/layout/Layout'
 
@@ -23,6 +24,12 @@ function RequireAuth({ children }) {
   const location = useLocation()
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   return children
+}
+
+// Avisos breves de confirmación ("Gestión guardada", "Descargado…"), con el tema de la app.
+function Notifications() {
+  const { theme } = useApp()
+  return <Toaster theme={theme === 'light' ? 'light' : 'dark'} position="top-center" richColors closeButton offset={16} toastOptions={{ duration: 3000 }} />
 }
 
 function PageFallback() {
@@ -81,6 +88,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <Notifications />
     </AppProvider>
   )
 }

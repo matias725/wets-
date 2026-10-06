@@ -3,8 +3,8 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/context/AppContext'
 import { ALL_BRANCHES, BRANCHES, TODAY, addDays, getExpenseRows, getOpenWorkOrders, getVehicles, iso } from '@/data/api'
 import { clpShort } from '@/lib/format'
-import HiluxShowcase from '@/components/login/HiluxShowcase'
-
+// Cada ingreso se descarga solo en el equipo que lo usa (el 3D pesa ~700 kB).
+const HiluxShowcase = lazy(() => import('@/components/login/HiluxShowcase'))
 const MobileLogin = lazy(() => import('@/components/login/MobileLogin'))
 // Celulares y tablets chicas: ingreso liviano (la presentación 3D es para computador).
 const MOBILE_QUERY = '(max-width: 820px), (pointer: coarse) and (max-width: 1024px)'
@@ -45,12 +45,9 @@ export default function Login() {
     login()
     navigate(location.state?.from || '/', { replace: true })
   }
-  if (mobile) {
-    return (
-      <Suspense fallback={<div style={{ minHeight: '100svh', background: '#050505' }} />}>
-        <MobileLogin stats={stats} onLogin={onLogin} />
-      </Suspense>
-    )
-  }
-  return <HiluxShowcase stats={stats} branchList={branchList} onLogin={onLogin} />
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100svh', background: mobile ? '#0b1120' : '#050505' }} />}>
+      {mobile ? <MobileLogin stats={stats} onLogin={onLogin} /> : <HiluxShowcase stats={stats} branchList={branchList} onLogin={onLogin} />}
+    </Suspense>
+  )
 }
