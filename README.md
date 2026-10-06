@@ -24,7 +24,7 @@ npm run lint     # revisión del código
 
 ## Presentación de ingreso
 
-La pantalla de ingreso es una presentación 3D guiada por el desplazamiento: una Toyota Hilux minera (pintura amarillo West, baliza, pértiga, snorkel, logo en las puertas) modelada por código con three.js, en seis cuadros: portada, vista desde arriba, datos de la flota, Flota · Taller · Gastos, "cada kilómetro bajo control" y el formulario. Arrastrando se gira la camioneta. Los botones **Ingresar** y **Saltar intro** van directo al formulario, y quien ya la vio entra directo al formulario las siguientes veces. Respeta la preferencia de "reducir movimiento" del sistema. Código en `src/components/login/` (`hilux.js` modela la camioneta; `HiluxShowcase.jsx` la escena y los textos).
+La pantalla de ingreso es una presentación 3D guiada por el desplazamiento: una Toyota Hilux 2024 plateada (parrilla de panal, focos LED, barra deportiva, llantas de 6 rayos) modelada por código con three.js, en seis cuadros: portada, vista desde arriba, datos de la flota, Flota · Taller · Gastos, "cada kilómetro bajo control" y el formulario. Arrastrando se gira la camioneta. Los botones **Ingresar** y **Saltar intro** van directo al formulario, y quien ya la vio entra directo al formulario las siguientes veces. Respeta la preferencia de "reducir movimiento" del sistema. Para usar un **modelo 3D real** de la Hilux, copie un archivo `hilux.glb` en `public/models/` (instrucciones en `public/models/LEEME.txt`); reemplaza automáticamente a la camioneta modelada por código. Código en `src/components/login/` (`hilux.js` modela la camioneta; `HiluxShowcase.jsx` la escena y los textos).
 
 ## Pantallas
 

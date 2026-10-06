@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import '@fontsource/big-shoulders-display/400'
 import '@fontsource/big-shoulders-display/700'
 import '@fontsource/big-shoulders-display/800'
 import '@fontsource/big-shoulders-display/900'
 import { ArrowRight, ChevronsDown, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { buildHilux, HEART, RADIUS } from './hilux'
-import logoBlack from '@/assets/img/west_logo_black.png'
 import logoYellow from '@/assets/img/west_logo_yellow.png'
 import fallbackPhoto from '@/assets/img/login-desierto.jpg'
 
@@ -17,10 +17,13 @@ import fallbackPhoto from '@/assets/img/login-desierto.jpg'
  * datos, flota, kilómetros, ingreso). Entre cuadros la cámara orbita la Hilux,
  * la camioneta cambia de tamaño y lugar, y los textos se transforman. Las letras
  * W y A de la portada se separan para flanquear la camioneta vista desde arriba.
- * Inspirado en "Lycoris Specimen"; la flor se reemplaza por una Hilux minera.
+ * Inspirado en "Lycoris Specimen"; la flor se reemplaza por una Toyota Hilux 2024.
  */
 
 const INK = '#050505'
+// Modelo 3D real opcional: si existe, reemplaza a la camioneta modelada por código.
+const MODEL_URL = '/models/hilux.glb'
+const MODEL_CONFIG_URL = '/models/hilux.json' // { "rotateY": 180 } si el modelo mira hacia atrás
 const BONE = '#e9e3cf'
 const GOLD = '#ffc400'
 const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Impact, sans-serif'
@@ -218,7 +221,7 @@ function LoginForm({ onLogin, emailRef }) {
  *           branchList: { id:string, name:string, total:number, available:number }[],
  *           onLogin: () => void, height?: string, sceneScroll?: number, paint?: string }} props
  */
-export default function HiluxShowcase({ stats, branchList, onLogin, height = '100svh', sceneScroll = 1.1, paint = GOLD }) {
+export default function HiluxShowcase({ stats, branchList, onLogin, height = '100svh', sceneScroll = 1.1, paint = '#b9bcc1' }) {
   const rootRef = useRef(null)
   const stageRef = useRef(null)
   const canvasRef = useRef(null)
@@ -290,15 +293,60 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
     kick.position.set(0, -2, 6)
     scene.add(key, rim, kick, new THREE.HemisphereLight('#3a3428', '#050505', 0.35))
 
-    const truck = buildHilux({ paint: look.current.paint, logoUrl: logoBlack })
+    const truck = buildHilux({ paint: look.current.paint })
     const pivot = new THREE.Group()
     pivot.add(truck.root)
-    truck.root.traverse((o) => {
-      if (o.isMesh && !o.material.transparent) {
-        o.castShadow = true
-        o.receiveShadow = true
+    const enableShadows = (obj) =>
+      obj.traverse((o) => {
+        if (o.isMesh && !o.material.transparent) {
+          o.castShadow = true
+          o.receiveShadow = true
+        }
+      })
+    enableShadows(truck.root)
+
+    // Si hay un modelo real en public/models/hilux.glb, se normaliza (largo 5,3 m,
+    // ruedas en el suelo, frente hacia +X) y reemplaza al modelado por código.
+    let external = null
+    let disposed = false
+    ;(async () => {
+      try {
+        const head = await fetch(MODEL_URL, { method: 'HEAD' })
+        const type = head.headers.get('content-type') || ''
+        if (!head.ok || type.includes('text/html')) return
+        let config = {}
+        try {
+          const c = await fetch(MODEL_CONFIG_URL)
+          if (c.ok && !(c.headers.get('content-type') || '').includes('text/html')) config = await c.json()
+        } catch {
+          /* sin configuración */
+        }
+        const gltf = await new GLTFLoader().loadAsync(MODEL_URL)
+        if (disposed) return
+        const model = gltf.scene
+        let box = new THREE.Box3().setFromObject(model)
+        let size = box.getSize(new THREE.Vector3())
+        if (size.z > size.x) model.rotation.y = Math.PI / 2
+        model.rotation.y += ((config.rotateY || 0) * Math.PI) / 180
+        model.updateMatrixWorld(true)
+        box = new THREE.Box3().setFromObject(model)
+        size = box.getSize(new THREE.Vector3())
+        const scale = (config.length || 5.3) / Math.max(size.x, 0.001)
+        model.scale.multiplyScalar(scale)
+        model.updateMatrixWorld(true)
+        box = new THREE.Box3().setFromObject(model)
+        const center = box.getCenter(new THREE.Vector3())
+        model.position.sub(new THREE.Vector3(center.x, box.min.y, center.z))
+        const holder = new THREE.Group()
+        holder.add(model)
+        enableShadows(holder)
+        pivot.remove(truck.root)
+        pivot.add(holder)
+        external = holder
+      } catch {
+        /* sin modelo externo: se usa el modelado por código */
       }
-    })
+    })()
     // suelo invisible que solo recibe la sombra; gira con la camioneta y la luz queda fija
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.55 }))
     ground.receiveShadow = true
@@ -554,7 +602,15 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
       stage.removeEventListener('pointermove', onMove)
       stage.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointerup', onUp)
+      disposed = true
       truck.dispose()
+      external?.traverse((o) => {
+        o.geometry?.dispose()
+        ;[].concat(o.material || []).forEach((mt) => {
+          Object.values(mt).forEach((v) => v?.isTexture && v.dispose())
+          mt.dispose()
+        })
+      })
       ground.geometry.dispose()
       ground.material.dispose()
       dustGeo.dispose()
@@ -694,7 +750,7 @@ export default function HiluxShowcase({ stats, branchList, onLogin, height = '10
             </div>
             <div {...sc(0, 'rise', 0.5)} className="wsx-hide-sm flex gap-5" style={{ ...sans, ...hidden, color: GOLD, fontSize: 8.5, lineHeight: 1.3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               <span>West IA<br />Gestión de flota</span>
-              <span>Toyota Hilux<br />2.4 4×4 minera</span>
+              <span>Toyota Hilux 2024<br />Doble cabina 4×4</span>
               <span>Arica →<br />Puerto Montt</span>
             </div>
           </div>

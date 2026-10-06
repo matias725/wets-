@@ -1,4 +1,4 @@
-// Toyota Hilux doble cabina con equipamiento minero, modelada por código.
+// Toyota Hilux doble cabina (frente 2024), modelada por código como referencia.
 // Unidades ≈ metros. +X es el frente, +Y arriba, Z el ancho. Las ruedas tocan y=0.
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
@@ -6,20 +6,21 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 const WHEEL_X = 1.54 // media distancia entre ejes (3,08 m)
 const WHEEL_R = 0.395 // 265/65 R17
 const TRACK = 0.8 // media trocha
-const SIDE = 0.91 // cara lateral de la carrocería
+const SIDE = 0.91 // cara lateral de la carrocería baja
+const CABIN = 0.82 // cara lateral de la cabina (más angosta: "tumblehome")
 
 /** Centro visual del vehículo (donde mira la cámara) y radio que lo contiene. */
 export const HEART = new THREE.Vector3(0, 0.95, 0)
 export const RADIUS = 3.0
 
 // --------------------------------------------------------------- texturas
-function canvasTexture(w, h, draw) {
+function canvasTexture(w, h, draw, srgb = true) {
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
   draw(c.getContext('2d'), w, h)
   const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace
   t.anisotropy = 8
   return t
 }
@@ -36,21 +37,69 @@ function shadowTexture() {
   })
 }
 
-function badgeTexture(text) {
+/** Panal de abejas de la parrilla: celdas negras con borde gris oscuro. */
+function honeycombTexture() {
+  const t = canvasTexture(256, 256, (g, w, h) => {
+    g.fillStyle = '#050505'
+    g.fillRect(0, 0, w, h)
+    const r = 16
+    const hx = r * Math.sqrt(3)
+    g.lineWidth = 5
+    g.strokeStyle = '#5b6067'
+    for (let row = -1; row < h / (r * 1.5) + 1; row += 1) {
+      for (let col = -1; col < w / hx + 1; col += 1) {
+        const cx = col * hx + (row % 2 ? hx / 2 : 0)
+        const cy = row * r * 1.5
+        g.beginPath()
+        for (let k = 0; k < 6; k += 1) {
+          const a = Math.PI / 6 + (k * Math.PI) / 3
+          const x = cx + Math.cos(a) * r
+          const y = cy + Math.sin(a) * r
+          if (k) g.lineTo(x, y)
+          else g.moveTo(x, y)
+        }
+        g.closePath()
+        g.stroke()
+      }
+    }
+  })
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.repeat.set(3.2, 3.2)
+  return t
+}
+
+function slotTexture() {
+  const t = canvasTexture(64, 64, (g, w, h) => {
+    g.fillStyle = '#040404'
+    g.fillRect(0, 0, w, h)
+    g.fillStyle = '#2d3034'
+    for (let y = 0; y < h; y += 16) g.fillRect(0, y, w, 4)
+  })
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.repeat.set(4, 9)
+  return t
+}
+
+function textTexture(text, { color = '#f2f2f2', bg = null, weight = 900, size = 150, spacing = 26 } = {}) {
   return canvasTexture(1024, 200, (g, w, h) => {
-    g.font = '900 170px "Big Shoulders Display", "Arial Black", Impact, sans-serif'
+    if (bg) {
+      g.fillStyle = bg
+      g.fillRect(0, 0, w, h)
+    }
+    g.font = `${weight} ${size}px "Big Shoulders Display", "Arial Black", Impact, sans-serif`
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.letterSpacing = '28px'
-    g.fillStyle = '#f2f2f2'
+    g.letterSpacing = `${spacing}px`
+    g.fillStyle = color
     g.fillText(text, w / 2, h / 2 + 6)
   })
 }
 
-// --------------------------------------------------------------- carrocería
-function bodyShape() {
+// --------------------------------------------------------------- perfiles
+/** Carrocería baja: frente, capó, línea de cintura y tolva, con pasos de rueda. */
+function lowerBodyShape() {
   const s = new THREE.Shape()
-  const AR = 0.47 // radio del paso de rueda
+  const AR = 0.47
   const AY = 0.4
   s.moveTo(-2.62, 0.44)
   s.lineTo(-WHEEL_X - AR, 0.44)
@@ -59,19 +108,28 @@ function bodyShape() {
   s.absarc(WHEEL_X, AY, AR, Math.PI, 0, true)
   s.lineTo(2.52, 0.44)
   s.lineTo(2.66, 0.52)
-  s.quadraticCurveTo(2.74, 0.6, 2.74, 0.72) // parachoque
-  s.lineTo(2.73, 0.98) // frontal
-  s.quadraticCurveTo(2.72, 1.08, 2.6, 1.11) // borde del capó
-  s.lineTo(1.3, 1.2) // capó
-  s.lineTo(0.62, 1.77) // parabrisas
-  s.quadraticCurveTo(0.55, 1.83, 0.42, 1.83)
-  s.lineTo(-1.08, 1.83) // techo
-  s.quadraticCurveTo(-1.18, 1.83, -1.2, 1.73)
-  s.lineTo(-1.24, 1.24) // pared trasera de la cabina
+  s.quadraticCurveTo(2.75, 0.6, 2.75, 0.72) // parachoque
+  s.lineTo(2.75, 1.02) // frontal alto y vertical
+  s.quadraticCurveTo(2.74, 1.12, 2.58, 1.14) // borde del capó
+  s.lineTo(1.32, 1.23) // capó
+  s.lineTo(-1.26, 1.24) // cintura bajo la cabina
   s.lineTo(-2.58, 1.24) // baranda de la tolva
   s.quadraticCurveTo(-2.66, 1.24, -2.66, 1.16)
   s.lineTo(-2.68, 0.62) // portalón
   s.quadraticCurveTo(-2.7, 0.48, -2.62, 0.44)
+  return s
+}
+
+/** Cabina: parabrisas inclinado, techo y pared trasera. */
+function cabinShape() {
+  const s = new THREE.Shape()
+  s.moveTo(1.38, 1.2)
+  s.lineTo(0.62, 1.77)
+  s.quadraticCurveTo(0.53, 1.83, 0.38, 1.83)
+  s.lineTo(-1.06, 1.82)
+  s.quadraticCurveTo(-1.17, 1.82, -1.19, 1.72)
+  s.lineTo(-1.24, 1.2)
+  s.lineTo(1.38, 1.2)
   return s
 }
 
@@ -81,7 +139,6 @@ function polygon(points) {
   return s
 }
 
-/** Cuadrilátero a partir de 4 vértices (para parabrisas y luneta). */
 function quad(a, b, c, d) {
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute([...a, ...b, ...c, ...a, ...c, ...d], 3))
@@ -92,24 +149,22 @@ function quad(a, b, c, d) {
 // ------------------------------------------------------------------- rueda
 function buildWheel(m) {
   const wheel = new THREE.Group()
-  const spin = new THREE.Group() // lo que gira
+  const spin = new THREE.Group()
   wheel.add(spin)
 
-  // neumático: perfil redondeado revolucionado
   const profile = [
     [0.235, -0.135], [0.3, -0.142], [0.36, -0.136], [0.385, -0.115], [WHEEL_R, -0.07],
     [WHEEL_R, 0.07], [0.385, 0.115], [0.36, 0.136], [0.3, 0.142], [0.235, 0.135],
   ].map(([r, y]) => new THREE.Vector2(r, y))
-  const tire = new THREE.Mesh(new THREE.LatheGeometry(profile, 72).rotateX(Math.PI / 2), m.tire)
-  spin.add(tire)
+  spin.add(new THREE.Mesh(new THREE.LatheGeometry(profile, 72).rotateX(Math.PI / 2), m.tire))
 
-  // tacos todo terreno, alternados
+  // banda de rodado todo terreno
   const blocks = 34
-  const lug = new THREE.InstancedMesh(new RoundedBoxGeometry(0.075, 0.03, 0.105, 2, 0.012), m.tire, blocks * 2)
+  const lug = new THREE.InstancedMesh(new RoundedBoxGeometry(0.075, 0.026, 0.105, 2, 0.011), m.tire, blocks * 2)
   const o = new THREE.Object3D()
   for (let i = 0; i < blocks * 2; i += 1) {
     const a = ((i >> 1) / blocks) * Math.PI * 2 + (i % 2 ? Math.PI / blocks : 0)
-    const r = WHEEL_R + 0.008
+    const r = WHEEL_R + 0.007
     o.position.set(Math.cos(a) * r, Math.sin(a) * r, i % 2 ? 0.062 : -0.062)
     o.rotation.set(0, 0, a + Math.PI / 2)
     o.updateMatrix()
@@ -117,23 +172,25 @@ function buildWheel(m) {
   }
   spin.add(lug)
 
-  // llanta
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.236, 0.236, 0.22, 48, 1, true).rotateX(Math.PI / 2), m.gunmetal)
-  spin.add(rim)
-  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.225, 0.03, 48).rotateX(Math.PI / 2), m.gunmetal)
-  dish.position.z = 0.09
+  // llanta de 6 rayos en dos tonos: caras mecanizadas y fondo oscuro
+  spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.236, 0.236, 0.22, 48, 1, true).rotateX(Math.PI / 2), m.rimDark))
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.226, 0.03, 48).rotateX(Math.PI / 2), m.rimDark)
+  dish.position.z = 0.085
   spin.add(dish)
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.01, 8, 64), m.machined)
+  lip.position.z = 0.112
+  spin.add(lip)
   for (let i = 0; i < 6; i += 1) {
     const a = (i / 6) * Math.PI * 2
-    const spoke = new THREE.Mesh(new RoundedBoxGeometry(0.17, 0.05, 0.035, 2, 0.012), m.chrome)
-    spoke.position.set(Math.cos(a) * 0.115, Math.sin(a) * 0.115, 0.112)
+    const spoke = new THREE.Mesh(new RoundedBoxGeometry(0.18, 0.07, 0.035, 2, 0.014), m.machined)
+    spoke.position.set(Math.cos(a) * 0.12, Math.sin(a) * 0.12, 0.108)
     spoke.rotation.z = a
     spin.add(spoke)
-    const nut = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.02, 8).rotateX(Math.PI / 2), m.chrome)
-    nut.position.set(Math.cos(a + 0.52) * 0.06, Math.sin(a + 0.52) * 0.06, 0.122)
+    const nut = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.02, 8).rotateX(Math.PI / 2), m.chrome)
+    nut.position.set(Math.cos(a + 0.52) * 0.058, Math.sin(a + 0.52) * 0.058, 0.122)
     spin.add(nut)
   }
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.042, 0.03, 24).rotateX(Math.PI / 2), m.chrome)
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 0.03, 24).rotateX(Math.PI / 2), m.rimDark)
   cap.position.z = 0.125
   spin.add(cap)
   return { wheel, spin }
@@ -143,30 +200,26 @@ function buildWheel(m) {
 function materials(paint) {
   const std = (o) => new THREE.MeshStandardMaterial(o)
   return {
-    // pintura automotriz: base metálica saturada + barniz transparente
-    paint: new THREE.MeshPhysicalMaterial({ color: paint, metalness: 0.32, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 0.85, sheen: 0.4, sheenColor: '#ffdd66', sheenRoughness: 0.5 }),
-    glass: new THREE.MeshPhysicalMaterial({ color: '#06090d', metalness: 0.2, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, side: THREE.DoubleSide }),
-    trim: std({ color: '#121314', metalness: 0.2, roughness: 0.62 }),
-    gloss: new THREE.MeshPhysicalMaterial({ color: '#0b0b0c', metalness: 0.3, roughness: 0.25, clearcoat: 1 }),
-    chrome: std({ color: '#e8e8ea', metalness: 1, roughness: 0.12, envMapIntensity: 1.4 }),
-    gunmetal: std({ color: '#3a3d42', metalness: 0.9, roughness: 0.32 }),
+    paint: new THREE.MeshPhysicalMaterial({ color: paint, metalness: 0.82, roughness: 0.34, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.05 }),
+    glass: new THREE.MeshPhysicalMaterial({ color: '#05070a', metalness: 0.25, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.7, side: THREE.DoubleSide }),
+    trim: std({ color: '#0e0f10', metalness: 0.15, roughness: 0.65 }),
+    gloss: new THREE.MeshPhysicalMaterial({ color: '#070708', metalness: 0.3, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.04 }),
+    grilleFrame: std({ color: '#34373b', metalness: 0.7, roughness: 0.38 }),
+    chrome: std({ color: '#eceef0', metalness: 1, roughness: 0.1, envMapIntensity: 1.4 }),
+    machined: std({ color: '#c9ccd0', metalness: 1, roughness: 0.22, envMapIntensity: 1.3 }),
+    rimDark: std({ color: '#2b2e33', metalness: 0.8, roughness: 0.4 }),
     tire: std({ color: '#141414', metalness: 0, roughness: 0.92 }),
-    alu: std({ color: '#a7abb0', metalness: 0.95, roughness: 0.35 }),
-    head: std({ color: '#ffffff', emissive: '#fff4dc', emissiveIntensity: 0, metalness: 0.4, roughness: 0.15 }),
-    drl: std({ color: '#ffffff', emissive: '#e8f2ff', emissiveIntensity: 0 }),
+    skid: std({ color: '#7d8187', metalness: 0.9, roughness: 0.4 }),
+    head: std({ color: '#ffffff', emissive: '#fff6e2', emissiveIntensity: 0, metalness: 0.4, roughness: 0.15 }),
+    drl: std({ color: '#ffffff', emissive: '#eaf3ff', emissiveIntensity: 0 }),
     tail: std({ color: '#5a0508', emissive: '#ff1a1a', emissiveIntensity: 0.25, roughness: 0.2 }),
-    beacon: new THREE.MeshPhysicalMaterial({ color: '#ff8a00', emissive: '#ff7a00', emissiveIntensity: 0.4, roughness: 0.15, transmission: 0, clearcoat: 1 }),
-    flag: std({ color: '#ff6a00', emissive: '#ff5a00', emissiveIntensity: 0.25, roughness: 0.8, side: THREE.DoubleSide }),
-    pole: std({ color: '#f1f1f1', roughness: 0.4 }),
     bed: std({ color: '#0d0e10', metalness: 0.1, roughness: 0.7 }),
   }
 }
 
 // ----------------------------------------------------------------- armado
-/**
- * @param {{ paint?: string, logoUrl?: string }} opts
- */
-export function buildHilux({ paint = '#ffc400', logoUrl } = {}) {
+/** @param {{ paint?: string }} opts */
+export function buildHilux({ paint = '#b9bcc1' } = {}) {
   const m = materials(paint)
   const disposables = []
   const root = new THREE.Group()
@@ -174,147 +227,147 @@ export function buildHilux({ paint = '#ffc400', logoUrl } = {}) {
     const mesh = new THREE.Mesh(geo, mat)
     if (pos) mesh.position.set(...pos)
     if (rot) mesh.rotation.set(...rot)
-    mesh.castShadow = false
     parent.add(mesh)
     return mesh
   }
+  /** Pieza del frontal: polígono en (z, y) extruido hacia +X desde x. */
+  const front = (pts, depth, mat, x, bevel = 0.008) => {
+    const shape = polygon(pts.map(([z, y]) => [-z, y]))
+    const geo = bevel
+      ? new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 })
+      : new THREE.ShapeGeometry(shape)
+    return add(geo, mat, [x, 0, 0], [0, Math.PI / 2, 0])
+  }
+  const tex = (t) => {
+    disposables.push(t)
+    return t
+  }
 
-  // carrocería extruida con bordes redondeados
-  const bodyGeo = new THREE.ExtrudeGeometry(bodyShape(), {
-    depth: 1.68, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.06, bevelOffset: -0.06, bevelSegments: 6, curveSegments: 32,
-  })
-  bodyGeo.translate(0, 0, -0.84)
-  add(bodyGeo, m.paint)
+  // carrocería baja y cabina más angosta, ambas con bordes redondeados
+  const lower = new THREE.ExtrudeGeometry(lowerBodyShape(), { depth: 1.68, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.06, bevelOffset: -0.06, bevelSegments: 6, curveSegments: 32 })
+  lower.translate(0, 0, -0.84)
+  add(lower, m.paint)
+  const cabin = new THREE.ExtrudeGeometry(cabinShape(), { depth: 1.48, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelOffset: -0.08, bevelSegments: 8, curveSegments: 24 })
+  cabin.translate(0, 0, -0.74)
+  add(cabin, m.paint)
 
-  // línea de hombro: el pliegue que recorre la carrocería y atrapa la luz
+  // capó con relieve central y rejilla de ventilación negra al pie del parabrisas
+  add(new RoundedBoxGeometry(1.1, 0.05, 0.86, 3, 0.024), m.paint, [1.97, 1.195, 0], [0, 0, -0.071])
+  add(new RoundedBoxGeometry(0.14, 0.02, 1.5, 2, 0.008), m.trim, [1.33, 1.232, 0])
+
+  // línea de hombro y ensanches de guardabarros (color carrocería) con borde negro
   ;[1, -1].forEach((side) => {
-    const crease = add(new THREE.CapsuleGeometry(0.022, 4.3, 6, 12).rotateZ(Math.PI / 2), m.paint, [0.08, 1.15, side * (SIDE - 0.005)])
+    const crease = add(new THREE.CapsuleGeometry(0.02, 4.3, 6, 12).rotateZ(Math.PI / 2), m.paint, [0.08, 1.13, side * (SIDE - 0.006)])
     crease.scale.set(1, 1, 0.55)
-    // ensanche de los guardabarros, del color de la carrocería
     ;[WHEEL_X, -WHEEL_X].forEach((x) => {
-      const bulge = add(new THREE.TorusGeometry(0.6, 0.05, 10, 40, Math.PI * 0.86), m.paint, [x, 0.42, side * (SIDE - 0.01)], [0, 0, Math.PI * 0.07])
-      bulge.scale.set(1, 1, 0.6)
+      const bulge = add(new THREE.TorusGeometry(0.6, 0.075, 12, 48, Math.PI * 0.9), m.paint, [x, 0.42, side * (SIDE - 0.01)], [0, 0, Math.PI * 0.05])
+      bulge.scale.set(1, 1, 0.75)
+      const liner = add(new THREE.TorusGeometry(0.49, 0.03, 8, 48, Math.PI + 0.2), m.trim, [x, 0.4, side * (SIDE + 0.002)], [0, 0, -0.1])
+      liner.scale.set(1, 1, 0.7)
     })
   })
 
-  // tolva cubierta (lona negra)
+  // tolva (cubierta negra)
   add(new RoundedBoxGeometry(1.3, 0.03, 1.66, 2, 0.012), m.bed, [-1.93, 1.255, 0])
 
-  // vidrios laterales
-  const front = polygon([[1.22, 1.27], [0.6, 1.73], [-0.21, 1.73], [-0.21, 1.27]])
-  const rear = polygon([[-0.33, 1.27], [-0.33, 1.73], [-1.06, 1.73], [-1.13, 1.27]])
+  // vidrios: banda lateral continua, pilar B negro y visera sobre las ventanas
+  const sideGlass = polygon([[1.25, 1.3], [0.64, 1.74], [-1.02, 1.74], [-1.12, 1.3]])
   ;[1, -1].forEach((side) => {
-    ;[front, rear].forEach((shape) => add(new THREE.ShapeGeometry(shape), m.glass, [0, 0, side * (SIDE + 0.004)]))
+    add(new THREE.ShapeGeometry(sideGlass), m.glass, [0, 0, side * (CABIN + 0.004)])
+    add(new THREE.PlaneGeometry(0.11, 0.44), m.trim, [-0.27, 1.52, side * (CABIN + 0.008)], [0, side > 0 ? 0 : Math.PI, 0])
+    add(new RoundedBoxGeometry(1.95, 0.028, 0.06, 2, 0.012), m.gloss, [-0.18, 1.765, side * (CABIN + 0.02)])
   })
-  // parabrisas
   {
-    const a = new THREE.Vector2(1.3, 1.2)
+    const a = new THREE.Vector2(1.38, 1.2)
     const b = new THREE.Vector2(0.62, 1.77)
     const d = b.clone().sub(a)
-    const n = new THREE.Vector2(d.y, -d.x).normalize().multiplyScalar(-0.008)
-    const a2 = a.clone().addScaledVector(d, 0.05).add(n)
+    const n = new THREE.Vector2(d.y, -d.x).normalize().multiplyScalar(-0.01)
+    const a2 = a.clone().addScaledVector(d, 0.06).add(n)
     const b2 = b.clone().addScaledVector(d, -0.05).add(n)
-    add(quad([a2.x, a2.y, 0.8], [b2.x, b2.y, 0.76], [b2.x, b2.y, -0.76], [a2.x, a2.y, -0.8]), m.glass)
+    add(quad([a2.x, a2.y, 0.72], [b2.x, b2.y, 0.68], [b2.x, b2.y, -0.68], [a2.x, a2.y, -0.72]), m.glass)
   }
-  // luneta
-  add(quad([-1.243, 1.4, -0.58], [-1.222, 1.68, -0.55], [-1.222, 1.68, 0.55], [-1.243, 1.4, 0.58]), m.glass)
+  add(quad([-1.243, 1.4, -0.56], [-1.222, 1.68, -0.53], [-1.222, 1.68, 0.53], [-1.243, 1.4, 0.56]), m.glass)
 
-  // líneas de puertas y manillas
+  // puertas, manillas, espejos e insignia lateral
+  const fenderBadge = textTexture('HILUX', { color: '#e9ebee', size: 140 })
+  tex(fenderBadge)
+  const badgeMat = new THREE.MeshStandardMaterial({ map: fenderBadge, transparent: true, metalness: 1, roughness: 0.2, polygonOffset: true, polygonOffsetFactor: -2 })
+  m.fenderBadge = badgeMat
   ;[1, -1].forEach((side) => {
-    ;[1.2, -0.27, -1.22].forEach((x) => add(new THREE.PlaneGeometry(0.012, 0.62), m.trim, [x, 0.93, side * (SIDE + 0.003)], [0, side > 0 ? 0 : Math.PI, 0]))
-    ;[0.22, -0.98].forEach((x) => add(new RoundedBoxGeometry(0.17, 0.035, 0.03, 2, 0.01), m.chrome, [x, 1.13, side * (SIDE + 0.01)]))
+    ;[1.24, -0.26, -1.18].forEach((x) => add(new THREE.PlaneGeometry(0.012, 0.6), m.trim, [x, 0.92, side * (SIDE + 0.003)], [0, side > 0 ? 0 : Math.PI, 0]))
+    ;[0.18, -0.98].forEach((x) => add(new RoundedBoxGeometry(0.17, 0.04, 0.03, 2, 0.012), m.rimDark, [x, 1.13, side * (SIDE + 0.01)]))
+    add(new THREE.PlaneGeometry(0.34, 0.066), badgeMat, [1.66, 1.01, side * (SIDE + 0.006)], [0, side > 0 ? 0 : Math.PI, 0])
+    add(new RoundedBoxGeometry(0.24, 0.16, 0.2, 3, 0.055), m.gloss, [1.1, 1.4, side * (CABIN + 0.17)], [0, side * -0.12, 0])
+    add(new RoundedBoxGeometry(0.12, 0.05, 0.12, 2, 0.02), m.gloss, [1.16, 1.33, side * (CABIN + 0.06)])
+    add(new RoundedBoxGeometry(1.9, 0.05, 0.18, 2, 0.02), m.trim, [0, 0.48, side * 0.99])
   })
 
-  // logo West en las puertas delanteras
-  if (logoUrl) {
-    const tex = new THREE.TextureLoader().load(logoUrl)
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 8
-    disposables.push(tex)
-    const logoMat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.35, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2 })
-    m.logo = logoMat
-    ;[1, -1].forEach((side) => add(new THREE.PlaneGeometry(0.62, 0.23), logoMat, [0.47, 0.92, side * (SIDE + 0.006)], [0, side > 0 ? 0 : Math.PI, 0]))
-  }
-
-  // frontal: parrilla, emblema, focos, parachoque
-  // parrilla grande trapezoidal con marco cromado (Hilux actual)
+  // ---------------------------------------------------------------- frontal
+  ;[1, -1].forEach((s) => {
+    // foco: carcasa negra en ángulo hacia la parrilla, firma LED y proyectores
+    front([[0.45 * s, 0.94], [0.9 * s, 0.97], [0.92 * s, 1.09], [0.52 * s, 1.1]], 0.05, m.gloss, 2.715)
+    front([[0.52 * s, 0.965], [0.88 * s, 0.99], [0.88 * s, 1.003], [0.52 * s, 0.98]], 0, m.drl, 2.775, 0)
+    ;[0.63, 0.77].forEach((z) => add(new THREE.CylinderGeometry(0.034, 0.034, 0.02, 24).rotateZ(Math.PI / 2), m.head, [2.775, 1.04, z * s]))
+    // el foco envuelve la esquina hacia el guardabarros
+    add(new RoundedBoxGeometry(0.3, 0.12, 0.04, 2, 0.02), m.gloss, [2.6, 1.03, s * (SIDE - 0.005)], [0, 0, 0.05])
+    add(new RoundedBoxGeometry(0.22, 0.014, 0.01, 1, 0.005), m.drl, [2.6, 1.0, s * (SIDE + 0.016)])
+    // tomas laterales en "C" con neblinero
+    front([[0.5 * s, 0.9], [0.62 * s, 0.9], [0.66 * s, 0.66], [0.9 * s, 0.6], [0.9 * s, 0.5], [0.58 * s, 0.52], [0.52 * s, 0.6]], 0.035, m.gloss, 2.74)
+    add(new THREE.CylinderGeometry(0.034, 0.034, 0.02, 20).rotateZ(Math.PI / 2), m.head, [2.775, 0.66, 0.75 * s])
+  })
+  // parrilla trapezoidal: marco gris, panal superior y ranuras inferiores
+  front([[-0.5, 1.1], [0.5, 1.1], [0.43, 0.8], [0.38, 0.58], [-0.38, 0.58], [-0.43, 0.8]], 0.045, m.grilleFrame, 2.735)
   {
-    const g = polygon([[-0.62, -0.24], [0.62, -0.24], [0.56, 0.2], [-0.56, 0.2]])
-    const grille = new THREE.ExtrudeGeometry(g, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.03, bevelSegments: 3 })
-    add(grille, m.gloss, [2.725, 0.8, 0], [0, Math.PI / 2, 0])
-    const outline = new THREE.Shape()
-    outline.moveTo(-0.66, -0.27)
-    outline.lineTo(0.66, -0.27)
-    outline.lineTo(0.6, 0.23)
-    outline.lineTo(-0.6, 0.23)
-    outline.lineTo(-0.66, -0.27)
-    const hole = new THREE.Path()
-    hole.moveTo(-0.61, -0.235)
-    hole.lineTo(-0.55, 0.195)
-    hole.lineTo(0.55, 0.195)
-    hole.lineTo(0.61, -0.235)
-    hole.lineTo(-0.61, -0.235)
-    outline.holes.push(hole)
-    add(new THREE.ExtrudeGeometry(outline, { depth: 0.03, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.01, bevelSegments: 2 }), m.chrome, [2.775, 0.8, 0], [0, Math.PI / 2, 0])
+    const honey = tex(honeycombTexture())
+    const slots = tex(slotTexture())
+    const upper = front([[-0.425, 1.05], [0.425, 1.05], [0.375, 0.82], [-0.375, 0.82]], 0, new THREE.MeshStandardMaterial({ map: honey, metalness: 0.4, roughness: 0.45 }), 2.787, 0)
+    const lowerG = front([[-0.33, 0.78], [0.33, 0.78], [0.31, 0.64], [-0.31, 0.64]], 0, new THREE.MeshStandardMaterial({ map: slots, metalness: 0.4, roughness: 0.5 }), 2.787, 0)
+    m.honey = upper.material
+    m.slots = lowerG.material
   }
-  ;[0.68, 0.76, 0.84, 0.92].forEach((y) => add(new RoundedBoxGeometry(0.02, 0.018, 1.0, 2, 0.006), m.gunmetal, [2.79, y, 0]))
-  const emblem = add(new THREE.TorusGeometry(0.085, 0.012, 10, 40), m.chrome, [2.81, 0.84, 0], [0, Math.PI / 2, 0])
-  emblem.scale.set(1, 0.68, 1)
-  ;[1, -1].forEach((side) => {
-    add(new RoundedBoxGeometry(0.06, 0.15, 0.32, 3, 0.03), m.gloss, [2.72, 0.985, side * 0.7])
-    add(new RoundedBoxGeometry(0.05, 0.09, 0.2, 2, 0.02), m.head, [2.75, 0.995, side * 0.74])
-    add(new RoundedBoxGeometry(0.03, 0.018, 0.28, 1, 0.008), m.drl, [2.758, 0.925, side * 0.7])
-    add(new THREE.CylinderGeometry(0.04, 0.04, 0.03, 20).rotateZ(Math.PI / 2), m.head, [2.78, 0.53, side * 0.68])
-  })
-  add(new RoundedBoxGeometry(0.16, 0.19, 1.86, 3, 0.05), m.trim, [2.7, 0.53, 0])
-  add(new RoundedBoxGeometry(0.34, 0.04, 1.1, 2, 0.015), m.alu, [2.6, 0.41, 0])
+  // emblema Toyota: tres elipses cromadas
+  {
+    const g = new THREE.Group()
+    g.position.set(2.8, 0.95, 0)
+    g.rotation.y = Math.PI / 2
+    root.add(g)
+    const ring = (r, tube, sx, sy, y = 0) => {
+      const e = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 10, 48), m.chrome)
+      e.scale.set(sx, sy, 1)
+      e.position.y = y
+      g.add(e)
+    }
+    ring(0.11, 0.013, 1, 0.7)
+    ring(0.07, 0.009, 1, 0.36, 0.025)
+    ring(0.048, 0.009, 0.42, 1, -0.006)
+  }
+  // banda inferior negra, placa HILUX y protector
+  add(new RoundedBoxGeometry(0.1, 0.13, 1.56, 2, 0.035), m.trim, [2.7, 0.52, 0])
+  {
+    const plate = tex(textTexture('HILUX', { bg: '#0a0a0a', color: '#f4f4f4', size: 120, spacing: 22 }))
+    m.plate = new THREE.MeshStandardMaterial({ map: plate, roughness: 0.5 })
+    add(new THREE.PlaneGeometry(0.42, 0.085), m.plate, [2.756, 0.53, 0], [0, Math.PI / 2, 0])
+  }
+  add(new RoundedBoxGeometry(0.3, 0.05, 1.24, 2, 0.02), m.skid, [2.6, 0.43, 0], [0, 0, 0.18])
 
-  // trasera: focos, parachoque, insignia
+  // trasera
   ;[1, -1].forEach((side) => add(new RoundedBoxGeometry(0.05, 0.38, 0.12, 2, 0.02), m.tail, [-2.69, 0.95, side * 0.84]))
-  add(new RoundedBoxGeometry(0.16, 0.16, 1.86, 3, 0.05), m.chrome, [-2.7, 0.5, 0])
-  add(new RoundedBoxGeometry(0.12, 0.07, 0.12, 2, 0.02), m.gunmetal, [-2.82, 0.47, 0])
+  add(new RoundedBoxGeometry(0.16, 0.16, 1.86, 3, 0.05), m.skid, [-2.7, 0.5, 0])
   {
-    const badge = badgeTexture('HILUX')
-    disposables.push(badge)
-    const mat = new THREE.MeshStandardMaterial({ map: badge, transparent: true, metalness: 1, roughness: 0.18, polygonOffset: true, polygonOffsetFactor: -2 })
-    m.badge = mat
-    add(new THREE.PlaneGeometry(0.9, 0.18), mat, [-2.687, 1.0, 0], [0, -Math.PI / 2, 0])
+    const badge = tex(textTexture('HILUX'))
+    m.badge = new THREE.MeshStandardMaterial({ map: badge, transparent: true, metalness: 1, roughness: 0.18, polygonOffset: true, polygonOffsetFactor: -2 })
+    add(new THREE.PlaneGeometry(0.9, 0.18), m.badge, [-2.687, 1.0, 0], [0, -Math.PI / 2, 0])
   }
 
-  // laterales: guardabarros, pisaderas, espejos
-  ;[1, -1].forEach((side) => {
-    ;[WHEEL_X, -WHEEL_X].forEach((x) => {
-      const flare = add(new THREE.TorusGeometry(0.505, 0.06, 12, 48, Math.PI + 0.24), m.trim, [x, 0.4, side * (SIDE + 0.01)], [0, 0, -0.12])
-      flare.scale.set(1, 1, 0.8)
-      add(new RoundedBoxGeometry(0.03, 0.22, 0.2, 1, 0.01), m.trim, [x - 0.52, 0.27, side * 0.82]) // faldón
-    })
-    add(new RoundedBoxGeometry(1.86, 0.05, 0.17, 2, 0.02), m.alu, [0, 0.5, side * 0.99])
-    add(new RoundedBoxGeometry(0.12, 0.17, 0.22, 3, 0.04), m.gloss, [1.05, 1.38, side * 1.05])
-    add(new RoundedBoxGeometry(0.08, 0.04, 0.12, 2, 0.015), m.gloss, [1.08, 1.3, side * 0.95])
-  })
+  // barra deportiva negra
+  const tube = (pts, r, mat) => add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p))), 48, r, 12), mat)
+  tube([[-1.45, 1.24, 0.84], [-1.5, 1.78, 0.8], [-1.52, 1.87, 0.6], [-1.52, 1.87, -0.6], [-1.5, 1.78, -0.8], [-1.45, 1.24, -0.84]], 0.04, m.gloss)
+  tube([[-1.52, 1.85, 0.55], [-2.15, 1.26, 0.82]], 0.028, m.gloss)
+  tube([[-1.52, 1.85, -0.55], [-2.15, 1.26, -0.82]], 0.028, m.gloss)
 
-  // chasis visible bajo la carrocería
+  // chasis visible
   add(new THREE.BoxGeometry(4.6, 0.16, 1.4), m.trim, [0, 0.36, 0])
   ;[WHEEL_X, -WHEEL_X].forEach((x) => add(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 12).rotateX(Math.PI / 2), m.trim, [x, WHEEL_R, 0]))
-  add(new THREE.CylinderGeometry(0.035, 0.035, 0.25, 12).rotateZ(Math.PI / 2), m.chrome, [-2.62, 0.33, 0.6])
-
-  // equipamiento minero: barra antivuelco, snorkel, baliza, barras de techo, pértiga
-  const tube = (pts, r, mat) => add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p))), 48, r, 12), mat)
-  tube([[-1.42, 1.24, 0.84], [-1.46, 1.78, 0.8], [-1.48, 1.88, 0.6], [-1.48, 1.88, -0.6], [-1.46, 1.78, -0.8], [-1.42, 1.24, -0.84]], 0.035, m.gloss)
-  tube([[-1.47, 1.86, 0.55], [-2.2, 1.26, 0.82]], 0.025, m.gloss)
-  tube([[-1.47, 1.86, -0.55], [-2.2, 1.26, -0.82]], 0.025, m.gloss)
-  tube([[1.95, 1.02, 0.95], [1.35, 1.08, 0.97], [0.78, 1.5, 0.95], [0.6, 1.9, 0.92]], 0.05, m.trim)
-  add(new RoundedBoxGeometry(0.2, 0.12, 0.14, 2, 0.04), m.trim, [0.62, 1.95, 0.92], [0, 0, 0.25])
-  ;[1, -1].forEach((side) => add(new RoundedBoxGeometry(1.25, 0.04, 0.05, 2, 0.015), m.gloss, [-0.33, 1.86, side * 0.66]))
-  add(new THREE.CylinderGeometry(0.1, 0.11, 0.05, 24), m.trim, [-0.72, 1.86, 0])
-  const beacon = add(new THREE.SphereGeometry(0.088, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), m.beacon, [-0.72, 1.885, 0])
-  const beaconLight = new THREE.PointLight('#ff8a00', 0, 4.5, 2)
-  beaconLight.position.set(-0.72, 2.05, 0)
-  root.add(beaconLight)
-  add(new THREE.CylinderGeometry(0.011, 0.011, 2.2, 8), m.pole, [-2.52, 2.32, -0.82])
-  const flagGeo = new THREE.PlaneGeometry(0.44, 0.28, 16, 4).translate(0.22, 0, 0)
-  const flag = add(flagGeo, m.flag, [-2.52, 3.28, -0.82])
-  const flagBase = flagGeo.attributes.position.array.slice()
 
   // ruedas
   const wheels = []
@@ -324,39 +377,21 @@ export function buildHilux({ paint = '#ffc400', logoUrl } = {}) {
     w.position.set(x, WHEEL_R, side * TRACK)
     if (side < 0) w.rotation.y = Math.PI
     root.add(w)
-    wheels.push({ group: w, spin: w.children[0], side })
+    wheels.push({ spin: w.children[0], side })
   })
 
   // sombra de contacto
-  const shadowTex = shadowTexture()
-  disposables.push(shadowTex)
+  const shadowTex = tex(shadowTexture())
   const shadow = add(new THREE.PlaneGeometry(7.2, 3.4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }), [0, 0.004, 0])
   shadow.renderOrder = -1
 
   // ------------------------------------------------------------ animación
-  let lightsOn = 0
-  /**
-   * t: tiempo (s) · roll: avance de las ruedas en radianes · alive: animación
-   * lights: 0..1 encendido de focos (intro)
-   */
-  function update({ t, roll, alive, lights }) {
-    lightsOn = lights
-    // parpadeo de encendido de los focos
+  function update({ t, roll, lights }) {
     const flicker = lights < 1 && lights > 0 ? (Math.sin(t * 60) > 0.2 ? 1 : 0.25) : 1
-    m.head.emissiveIntensity = 3.2 * lightsOn * flicker
-    m.drl.emissiveIntensity = 4 * lightsOn
-    m.tail.emissiveIntensity = 0.25 + 1.6 * lightsOn
-    const pulse = alive ? Math.pow(Math.max(0, Math.sin(t * 5.2)), 6) : 0.4
-    m.beacon.emissiveIntensity = 0.4 + 5 * pulse * lightsOn
-    beaconLight.intensity = 6 * pulse * lightsOn
+    m.head.emissiveIntensity = 3 * lights * flicker
+    m.drl.emissiveIntensity = 5 * lights
+    m.tail.emissiveIntensity = 0.25 + 1.6 * lights
     wheels.forEach(({ spin, side }) => (spin.rotation.z = -roll * side))
-    // banderín flameando
-    const pos = flag.geometry.attributes.position
-    for (let i = 0; i < pos.count; i += 1) {
-      const x = flagBase[i * 3]
-      pos.array[i * 3 + 2] = alive ? Math.sin(x * 9 - t * 7) * 0.035 * (x / 0.44) : 0
-    }
-    pos.needsUpdate = true
   }
 
   function dispose() {
@@ -366,5 +401,5 @@ export function buildHilux({ paint = '#ffc400', logoUrl } = {}) {
     disposables.forEach((d) => d.dispose())
   }
 
-  return { root, update, dispose, beacon }
+  return { root, update, dispose }
 }

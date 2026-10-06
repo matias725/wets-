@@ -1,0 +1,12 @@
+MODELO 3D REAL DE LA CAMIONETA (opcional)
+
+Si se copia aquí un archivo llamado  hilux.glb  la presentación de ingreso lo usa
+en lugar de la camioneta modelada por código. Se ajusta solo: 5,3 m de largo,
+ruedas en el suelo y frente hacia la derecha en la portada.
+
+Si el modelo aparece mirando al revés, cree aquí  hilux.json  con:
+  { "rotateY": 180 }
+(también acepta 90 o -90, y "length" para cambiar el largo en metros)
+
+Dónde conseguirlo: Sketchfab (buscar "Toyota Hilux 2024", filtrar por "Downloadable",
+descargar en formato glTF/GLB). Revise la licencia del modelo antes de usarlo.
