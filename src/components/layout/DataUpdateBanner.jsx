@@ -3,6 +3,7 @@ import { AlertTriangle, Database, RefreshCw } from 'lucide-react'
 import { META } from '@/data/api'
 import { Button } from '@/components/ui/Button'
 import { num } from '@/lib/format'
+import { newVersionAvailable } from '@/lib/appVersion'
 
 const POLL_MS = 20_000
 
@@ -11,6 +12,7 @@ const POLL_MS = 20_000
 export function DataUpdateBanner() {
   const [status, setStatus] = useState(null)
   const [dismissedError, setDismissedError] = useState('')
+  const [newVersion, setNewVersion] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -20,6 +22,7 @@ export function DataUpdateBanner() {
         if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return
         const s = await res.json()
         if (alive) setStatus(s)
+        if (alive && (await newVersionAvailable())) setNewVersion(true)
       } catch {
         /* sin vigilante: nada que mostrar */
       }
@@ -32,6 +35,21 @@ export function DataUpdateBanner() {
     }
   }, [])
 
+  if (newVersion) {
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm">
+        <span className="flex items-center gap-2">
+          <RefreshCw size={18} className="shrink-0 text-sky-400" />
+          <span>
+            Hay una <b>versión nueva de WEST IA</b>. Actualice la página para usar las últimas mejoras (y que funcionen las exportaciones).
+          </span>
+        </span>
+        <Button variant="primary" size="sm" onClick={() => window.location.reload()}>
+          <RefreshCw size={14} /> Actualizar ahora
+        </Button>
+      </div>
+    )
+  }
   if (!status) return null
   const loaded = META.generatedAt ?? ''
   const isNewer = status.ok && status.generatedAt && status.generatedAt > loaded

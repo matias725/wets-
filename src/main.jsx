@@ -1,6 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { loadSapData } from './lib/sapStore'
+import { reloadForNewVersion } from './lib/appVersion'
+
+// Si falla la carga de una parte de la app porque se publicó una versión nueva
+// mientras esta pestaña estaba abierta, se recarga para quedar al día.
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadForNewVersion()) e.preventDefault()
+})
 import './index.css'
 
 async function fromFile() {

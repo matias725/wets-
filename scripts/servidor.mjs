@@ -297,6 +297,11 @@ async function handleRequest(req, res) {
   if (file.startsWith(DIST) && fs.existsSync(file) && fs.statSync(file).isFile()) {
     return send(req, res, file, pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache')
   }
+  // archivo de la app que ya no existe (pestaña con una versión antigua): 404, no la página
+  if (pathname.startsWith('/assets/')) {
+    res.writeHead(404, { 'Cache-Control': 'no-store' }).end()
+    return
+  }
   // aplicación de una sola página: cualquier otra ruta abre index.html
   send(req, res, path.join(DIST, 'index.html'), 'no-cache')
 }

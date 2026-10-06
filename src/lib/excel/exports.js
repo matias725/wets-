@@ -2,7 +2,7 @@
 // y hoja de detalle con filtros y totales.
 import { toast } from 'sonner'
 import { META, TODAY, iso } from '@/data/api'
-import { downloadReport } from './report'
+import { handleStaleApp } from '@/lib/appVersion'
 
 const today = () => iso(TODAY).split('-').reverse().join('-')
 const source = () => (META.source === 'sap' ? `SAP: ${META.fileName}` : 'datos de demostración')
@@ -32,9 +32,15 @@ const byMonth = (rows, dateOf, values) => {
 
 async function save(filename, spec, rowsCount) {
   try {
+    // se carga a pedido (exceljs pesa ~1 MB)
+    const { downloadReport } = await import('./report')
     await downloadReport(filename, spec)
     toast.success(`Descargado: ${filename}`, { description: `${rowsCount.toLocaleString('es-CL')} filas · con resumen y gráficos` })
   } catch (e) {
+    if (handleStaleApp(e)) {
+      toast.info('WEST IA se actualizó: recargando la página…', { description: 'Vuelva a presionar el botón de Excel' })
+      return
+    }
     toast.error('No se pudo generar el Excel', { description: e?.message || String(e) })
   }
 }
