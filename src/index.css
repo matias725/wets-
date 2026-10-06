@@ -1,0 +1,160 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import 'leaflet/dist/leaflet.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tokens de color. Modo claro por defecto en :root; el modo oscuro (predeterminado
+   de la app) se activa con la clase .dark en <html>. */
+:root {
+  --bg: #f3f5f9;
+  --bg-glow-1: rgba(255, 196, 0, 0.16);
+  --bg-glow-2: rgba(59, 130, 246, 0.1);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
+  --text: #0f172a;
+  --muted: #64748b;
+  --subtle: #94a3b8;
+  --line: rgba(15, 23, 42, 0.07);
+  --hover: rgba(15, 23, 42, 0.04);
+  --input: rgba(255, 255, 255, 0.9);
+  --brand-text: #a37b00;
+  --chart-grid: rgba(15, 23, 42, 0.06);
+}
+
+.dark {
+  --bg: #0b1120;
+  --bg-glow-1: rgba(255, 196, 0, 0.09);
+  --bg-glow-2: rgba(56, 189, 248, 0.07);
+  --glass: rgba(255, 255, 255, 0.035);
+  --glass-strong: rgba(17, 24, 39, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px rgba(0, 0, 0, 0.35);
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --subtle: #64748b;
+  --line: rgba(255, 255, 255, 0.06);
+  --hover: rgba(255, 255, 255, 0.04);
+  --input: rgba(255, 255, 255, 0.04);
+  --brand-text: #ffc400;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-hover: var(--hover);
+  --color-input: var(--input);
+  --color-brand: #ffc400;
+  --color-brand-hover: #ffd23f;
+  --color-brand-ink: #2a2723;
+  --color-brand-text: var(--brand-text);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Fondo con dos halos suaves: le da profundidad al efecto vidrio. */
+.app-backdrop {
+  background:
+    radial-gradient(900px circle at 0% 0%, var(--bg-glow-1), transparent 55%),
+    radial-gradient(800px circle at 100% 30%, var(--bg-glow-2), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+.glass-strong {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barras de desplazamiento discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-border) transparent;
+}
+
+::selection {
+  background: rgba(255, 196, 0, 0.35);
+}
+
+/* Leaflet: el mapa hereda el radio de la tarjeta y tooltips con estilo de la app */
+.leaflet-container {
+  background: transparent;
+  font-family: var(--font-sans);
+}
+
+.leaflet-tooltip.west-tooltip {
+  background: var(--glass-strong);
+  color: var(--text);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  padding: 8px 10px;
+}
+
+.leaflet-tooltip.west-tooltip::before {
+  display: none;
+}
+
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  background: transparent !important;
+  color: var(--subtle) !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--muted) !important;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  filter: var(--date-icon-filter, none);
+  cursor: pointer;
+}
+
+.dark input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
