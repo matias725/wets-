@@ -28,3 +28,6 @@ dist-ssr
 
 # Datos reales de la empresa (generados con scripts/convertir_sap.py): NO subir
 public/data/
+
+# Imágenes con derechos de terceros (p. ej. foto de Toyota del ingreso): solo en este equipo
+public/local/
